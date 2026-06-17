@@ -26,22 +26,52 @@ tool reads that information and uses it to rename the **actual files on your**
 
 ---
 
+## Quick start
+
+```
+pip install plexapi
+python3 plex_rename.py --dry-run     # preview everything, change nothing
+python3 plex_rename.py               # do it for real (asks before any change)
+```
+
+That's the whole loop: dry-run first, look at the plan, then run it for real.
+Everything below is detail.
+
+## Contents
+
+- [Before you start: what you'll need](#before-you-start-what-youll-need)
+- [Step-by-step walkthrough](#step-by-step-walkthrough)
+- [Ways to connect to Plex](#ways-to-connect-to-plex)
+- [Command-line options](#command-line-options)
+- [The optional Jellyfin restructure](#the-optional-jellyfin-restructure)
+- [Step 7 (optional) — Migrate watched-state into Jellyfin](#step-7-optional--migrate-watched-state-into-jellyfin)
+- [Safety features](#safety-features)
+- [Undoing a run](#undoing-a-run)
+- [Development](#development) — running the tests
+- [Under the Hood](#under-the-hood)
+
+---
+
 ## What's in this folder
 
 | File | What it's for |
 | --- | --- |
-| **`plex_rename.py`** | **The main tool.** This is the one you run. |
-| `plex_undo_rename.py` | Reverses a previous run if you change your mind. |
-| `plex_rename_common.py` | Shared helper code. You never run this directly. |
-| `plex_jellyfin_userdata.py` | Step 7: migrates Plex watched-state into Jellyfin (used by the main tool; not run directly). |
-| `test_plex_rename.py` | Automated tests. Not needed for normal use. |
-| `test_plex_jellyfin_userdata.py` | Automated tests for step 7. Not needed for normal use. |
+| **`plex_rename.py`** | **The main tool.** This is the one you run (or use the `plex-rename` command after `pip install .`). |
+| `plex_undo_rename.py` | Reverses a previous run if you change your mind (`plex-undo-rename`). |
+| `plexrename/` | The package the two launchers above run: the real code, split into focused modules (`common`, `naming`, `connect`, `apply`, `jellyfin`, `undo`, `options`, `cli`). You never run these directly. |
+| `pyproject.toml` | Packaging metadata: the `plexapi` dependency and the `plex-rename` / `plex-undo-rename` console commands. |
+| `LICENSE` | MIT license. |
+| `test_plex_rename.py`, `test_plex_jellyfin_userdata.py` | Automated tests. Not needed for normal use — see [Development](#development). |
+
+> The four `plex_*.py` files in the root are thin launchers kept for
+> backwards compatibility; everything they do lives in the `plexrename`
+> package.
 
 ---
 
 ## Before you start: what you'll need
 
-1. **Python 3** installed (version 3.10 or newer). To check, open a terminal and
+1. **Python 3** installed (version 3.12 or newer). To check, open a terminal and
    type `python3 --version`.
 2. **The `plexapi` package.** Install it once by running:
 
@@ -285,7 +315,29 @@ and supports `--dry-run`.
 
 ---
 
+## Development
+
+The code lives in the `plexrename` package; the root `plex_*.py` files are thin
+launchers. The test suite needs **no live Plex/Jellyfin server and no
+third-party packages** (`plexapi` is imported lazily, so the logic is exercised
+with fake objects). Run everything with:
+
+```
+python3 -m unittest discover -p 'test_*.py'
+```
+
+The same command runs in CI (GitHub Actions, Python 3.12) on every push and pull
+request. To work on the tool as an installed package:
+
+```
+pip install -e .          # editable install; provides plex-rename / plex-undo-rename
+```
+
+---
+
 ＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝
+
+<a id="under-the-hood"></a>
 
 # !!!  Under the Hood --- How and Why the Tools Work  !!!
 

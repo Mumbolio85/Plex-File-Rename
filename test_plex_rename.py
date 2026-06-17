@@ -23,6 +23,7 @@ import plex_rename as pr
 import plex_rename_common as prc
 import plex_undo_rename as und
 import plex_jellyfin_userdata as jf
+from plexrename import cli as prcli, connect as prconn
 
 
 # --------------------------------------------------------------------------- #
@@ -798,13 +799,13 @@ class TestPreviewAndConfirm(unittest.TestCase):
 
     def test_confirm_yes(self):
         plan = [({}, "/a.mkv", "/b.mkv", [])]
-        orig = pr.ask_yes_no
-        pr.ask_yes_no = lambda *a, **k: True
+        orig = prc.ask_yes_no
+        prc.ask_yes_no = lambda *a, **k: True
         try:
             with redirect_stdout(StringIO()):
                 self.assertTrue(pr.preview_and_confirm(plan, "T", dry_run=False))
         finally:
-            pr.ask_yes_no = orig
+            prc.ask_yes_no = orig
 
 
 # --------------------------------------------------------------------------- #
@@ -874,13 +875,13 @@ class TestAnalyzeOutliers(unittest.TestCase):
         items = [{"levels": 1, "current_path": "/a", "leave_alone": False},
                  {"levels": 1, "current_path": "/b", "leave_alone": False},
                  {"levels": 0, "current_path": "/c", "leave_alone": False}]
-        orig = pr.ask_yes_no
-        pr.ask_yes_no = lambda *a, **k: False  # "no, don't change it"
+        orig = prc.ask_yes_no
+        prc.ask_yes_no = lambda *a, **k: False  # "no, don't change it"
         try:
             with redirect_stdout(StringIO()):
                 maj = pr.analyze_and_handle_outliers(items)
         finally:
-            pr.ask_yes_no = orig
+            prc.ask_yes_no = orig
         self.assertEqual(maj, 1)
         self.assertTrue(items[2]["leave_alone"])
 
@@ -892,15 +893,15 @@ class TestApplyMappingIntegration(unittest.TestCase):
     def setUp(self):
         self.lib = tempfile.mkdtemp()
         self.dl = tempfile.mkdtemp()
-        self._orig_downloads = pr.DOWNLOADS
-        pr.DOWNLOADS = self.dl
-        self._orig_yn = pr.ask_yes_no
-        self._orig_choice = pr.ask_choice
+        self._orig_downloads = prc.DOWNLOADS
+        prc.DOWNLOADS = self.dl
+        self._orig_yn = prc.ask_yes_no
+        self._orig_choice = prc.ask_choice
 
     def tearDown(self):
-        pr.DOWNLOADS = self._orig_downloads
-        pr.ask_yes_no = self._orig_yn
-        pr.ask_choice = self._orig_choice
+        prc.DOWNLOADS = self._orig_downloads
+        prc.ask_yes_no = self._orig_yn
+        prc.ask_choice = self._orig_choice
         shutil.rmtree(self.lib, ignore_errors=True)
         shutil.rmtree(self.dl, ignore_errors=True)
 
@@ -923,7 +924,7 @@ class TestApplyMappingIntegration(unittest.TestCase):
              "new_name": "Top (1986).mkv", "media_type": "movie"},
         ]
         # Answer "yes" to everything (continue, restructure, confirms).
-        pr.ask_yes_no = lambda *a, **k: True
+        prc.ask_yes_no = lambda *a, **k: True
         with redirect_stdout(StringIO()):
             pr.apply_mapping(entries, self.lib, dry_run=False)
         # Renamed and restructured into Title (Year)/Title (Year).ext
@@ -946,7 +947,7 @@ class TestApplyMappingIntegration(unittest.TestCase):
             {"old_path": "/srv/media/Top/top.mkv",
              "new_name": "Top (1986).mkv", "media_type": "movie"},
         ]
-        pr.ask_yes_no = lambda *a, **k: True
+        prc.ask_yes_no = lambda *a, **k: True
         with redirect_stdout(StringIO()):
             pr.apply_mapping(entries, self.lib, dry_run=True)
         self.assertTrue(os.path.exists(os.path.join(self.lib, "Heat", "heat.mkv")))
@@ -966,7 +967,7 @@ class TestApplyMappingIntegration(unittest.TestCase):
             {"old_path": "/srv/media/Top/top.mkv",
              "new_name": "Top (1986).mkv", "media_type": "movie"},
         ]
-        pr.ask_yes_no = lambda *a, **k: True
+        prc.ask_yes_no = lambda *a, **k: True
         buf = StringIO()
         with redirect_stdout(buf):
             pr.apply_mapping(entries, self.lib, dry_run=True)
@@ -983,7 +984,7 @@ class TestApplyMappingIntegration(unittest.TestCase):
         # entries point at files that don't exist locally
         entries = [{"old_path": "/srv/media/Heat/heat.mkv",
                     "new_name": "Heat (1995).mkv", "media_type": "movie"}]
-        pr.ask_yes_no = lambda *a, **k: True
+        prc.ask_yes_no = lambda *a, **k: True
         buf = StringIO()
         with redirect_stdout(buf):
             pr.apply_mapping(entries, self.lib, dry_run=False)
@@ -1002,7 +1003,7 @@ class TestApplyMappingIntegration(unittest.TestCase):
 
         def yn(prompt, default="n"):
             return False if "Restructure" in prompt else True
-        pr.ask_yes_no = yn
+        prc.ask_yes_no = yn
         with redirect_stdout(StringIO()):
             pr.apply_mapping(entries, self.lib, dry_run=False)
         # Files stay where they were (already correctly named/placed)
@@ -1018,10 +1019,10 @@ class TestApplyMappingIntegration(unittest.TestCase):
 class TestResolveInputPath(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.mkdtemp()
-        self._orig_ask_path = pr.ask_path
+        self._orig_ask_path = prc.ask_path
 
     def tearDown(self):
-        pr.ask_path = self._orig_ask_path
+        prc.ask_path = self._orig_ask_path
         shutil.rmtree(self.d, ignore_errors=True)
 
     def test_valid_file(self):
@@ -1045,80 +1046,80 @@ class TestResolveInputPath(unittest.TestCase):
                 pr.resolve_input_path("/no/such/dir", "p", must_be_dir=True)
 
     def test_none_falls_back_to_prompt(self):
-        pr.ask_path = lambda *a, **k: "/prompted/path"
+        prc.ask_path = lambda *a, **k: "/prompted/path"
         self.assertEqual(pr.resolve_input_path(None, "p"), "/prompted/path")
 
 
 class TestConnectViaSeparate(unittest.TestCase):
     def setUp(self):
-        self._orig_ask = pr.ask
-        self._orig_try = pr.try_connect
+        self._orig_ask = prc.ask
+        self._orig_try = prconn.try_connect
 
     def tearDown(self):
-        pr.ask = self._orig_ask
-        pr.try_connect = self._orig_try
+        prc.ask = self._orig_ask
+        prconn.try_connect = self._orig_try
 
     def test_both_present_connects(self):
         answers = iter(["http://h:32400", "tok"])
-        pr.ask = lambda *a, **k: next(answers)
+        prc.ask = lambda *a, **k: next(answers)
         sentinel = object()
         captured = {}
-        pr.try_connect = lambda b, t: captured.update(b=b, t=t) or sentinel
+        prconn.try_connect = lambda b, t: captured.update(b=b, t=t) or sentinel
         self.assertIs(pr.connect_via_separate(), sentinel)
         self.assertEqual(captured, {"b": "http://h:32400", "t": "tok"})
 
     def test_missing_returns_none(self):
         answers = iter(["", ""])
-        pr.ask = lambda *a, **k: next(answers)
+        prc.ask = lambda *a, **k: next(answers)
         with redirect_stdout(StringIO()):
             self.assertIsNone(pr.connect_via_separate())
 
     def test_connect_failure_returns_none(self):
         answers = iter(["http://h:32400", "tok"])
-        pr.ask = lambda *a, **k: next(answers)
+        prc.ask = lambda *a, **k: next(answers)
         def boom(*a, **k):
             raise ConnectionError("nope")
-        pr.try_connect = boom
+        prconn.try_connect = boom
         with redirect_stdout(StringIO()):
             self.assertIsNone(pr.connect_via_separate())
 
 
 class TestConnectViaXmlUrl(unittest.TestCase):
     def setUp(self):
-        self._orig_ask = pr.ask
-        self._orig_try = pr.try_connect
+        self._orig_ask = prc.ask
+        self._orig_try = prconn.try_connect
 
     def tearDown(self):
-        pr.ask = self._orig_ask
-        pr.try_connect = self._orig_try
+        prc.ask = self._orig_ask
+        prconn.try_connect = self._orig_try
 
     def test_valid_connects(self):
-        pr.ask = lambda *a, **k: "http://h:32400/x?X-Plex-Token=tok"
+        prc.ask = lambda *a, **k: "http://h:32400/x?X-Plex-Token=tok"
         sentinel = object()
         captured = {}
-        pr.try_connect = lambda b, t: captured.update(b=b, t=t) or sentinel
+        prconn.try_connect = lambda b, t: captured.update(b=b, t=t) or sentinel
         with redirect_stdout(StringIO()):
             self.assertIs(pr.connect_via_xml_url(), sentinel)
         self.assertEqual(captured, {"b": "http://h:32400", "t": "tok"})
 
     def test_blank_goes_back(self):
-        pr.ask = lambda *a, **k: ""
+        prc.ask = lambda *a, **k: ""
         with redirect_stdout(StringIO()):
             self.assertIsNone(pr.connect_via_xml_url())
 
     def test_bad_url_then_blank(self):
         answers = iter(["not a url", ""])
-        pr.ask = lambda *a, **k: next(answers)
+        prc.ask = lambda *a, **k: next(answers)
         with redirect_stdout(StringIO()):
             self.assertIsNone(pr.connect_via_xml_url())
 
     def test_connect_failure_then_blank(self):
         # First a valid URL that fails to connect, then blank to go back.
         answers = iter(["http://h:32400/x?X-Plex-Token=tok", ""])
-        pr.ask = lambda *a, **k: next(answers)
+        prc.ask = lambda *a, **k: next(answers)
         def boom(*a, **k):
             raise ConnectionError("nope")
-        pr.try_connect = boom
+        prconn.try_connect = boom
         with redirect_stdout(StringIO()):
             self.assertIsNone(pr.connect_via_xml_url())
 
@@ -1138,16 +1139,16 @@ class FakePlex:
 
 class TestChooseLibrary(unittest.TestCase):
     def setUp(self):
-        self._orig = pr.ask
+        self._orig = prc.ask
 
     def tearDown(self):
-        pr.ask = self._orig
+        prc.ask = self._orig
 
     def test_valid_choice(self):
         secs = [FakeSection("Movies", "movie", []),
                 FakeSection("TV", "show", [])]
         plex = FakePlex(secs)
-        pr.ask = lambda *a, **k: "1"
+        prc.ask = lambda *a, **k: "1"
         with redirect_stdout(StringIO()):
             chosen = pr.choose_library(plex)
         self.assertIs(chosen, secs[1])
@@ -1156,7 +1157,7 @@ class TestChooseLibrary(unittest.TestCase):
         secs = [FakeSection("Movies", "movie", [])]
         plex = FakePlex(secs)
         answers = iter(["9", "x", "0"])
-        pr.ask = lambda *a, **k: next(answers)
+        prc.ask = lambda *a, **k: next(answers)
         with redirect_stdout(StringIO()):
             chosen = pr.choose_library(plex)
         self.assertIs(chosen, secs[0])
@@ -1171,16 +1172,16 @@ class TestDefaultExportPath(unittest.TestCase):
 
 class TestConfigureInteractively(unittest.TestCase):
     def setUp(self):
-        self._orig_yn = pr.ask_yes_no
-        self._orig_ask = pr.ask
-        self._orig_ask_path = pr.ask_path
-        self._orig_multi = pr.ask_multichoice
+        self._orig_yn = prc.ask_yes_no
+        self._orig_ask = prc.ask
+        self._orig_ask_path = prc.ask_path
+        self._orig_multi = prc.ask_multichoice
 
     def tearDown(self):
-        pr.ask_yes_no = self._orig_yn
-        pr.ask = self._orig_ask
-        pr.ask_path = self._orig_ask_path
-        pr.ask_multichoice = self._orig_multi
+        prc.ask_yes_no = self._orig_yn
+        prc.ask = self._orig_ask
+        prc.ask_path = self._orig_ask_path
+        prc.ask_multichoice = self._orig_multi
 
     def _args(self):
         import argparse
@@ -1188,7 +1189,7 @@ class TestConfigureInteractively(unittest.TestCase):
                                   export_file=None, from_mapping=None)
 
     def test_declined(self):
-        pr.ask_yes_no = lambda *a, **k: False
+        prc.ask_yes_no = lambda *a, **k: False
         args = self._args()
         with redirect_stdout(StringIO()):
             pr.configure_interactively(args)
@@ -1196,8 +1197,8 @@ class TestConfigureInteractively(unittest.TestCase):
         self.assertFalse(args.export_only)
 
     def test_selects_dry_run_and_export_only(self):
-        pr.ask_yes_no = lambda *a, **k: True
-        pr.ask_multichoice = lambda *a, **k: ["dry-run", "export-only"]
+        prc.ask_yes_no = lambda *a, **k: True
+        prc.ask_multichoice = lambda *a, **k: ["dry-run", "export-only"]
         args = self._args()
         with redirect_stdout(StringIO()):
             pr.configure_interactively(args)
@@ -1205,35 +1206,35 @@ class TestConfigureInteractively(unittest.TestCase):
         self.assertTrue(args.export_only)
 
     def test_export_with_custom_path(self):
-        pr.ask_yes_no = lambda *a, **k: True
-        pr.ask_multichoice = lambda *a, **k: ["export"]
-        pr.ask = lambda *a, **k: "/tmp/custom.json"  # the export path prompt
+        prc.ask_yes_no = lambda *a, **k: True
+        prc.ask_multichoice = lambda *a, **k: ["export"]
+        prc.ask = lambda *a, **k: "/tmp/custom.json"  # the export path prompt
         args = self._args()
         with redirect_stdout(StringIO()):
             pr.configure_interactively(args)
         self.assertEqual(args.export_file, "/tmp/custom.json")
 
     def test_from_mapping(self):
-        pr.ask_yes_no = lambda *a, **k: True
-        pr.ask_multichoice = lambda *a, **k: ["from-mapping"]
-        pr.ask_path = lambda *a, **k: "/tmp/map.json"
+        prc.ask_yes_no = lambda *a, **k: True
+        prc.ask_multichoice = lambda *a, **k: ["from-mapping"]
+        prc.ask_path = lambda *a, **k: "/tmp/map.json"
         args = self._args()
         with redirect_stdout(StringIO()):
             pr.configure_interactively(args)
         self.assertEqual(args.from_mapping, "/tmp/map.json")
 
     def test_no_valid_selection(self):
-        pr.ask_yes_no = lambda *a, **k: True
-        pr.ask_multichoice = lambda *a, **k: []
+        prc.ask_yes_no = lambda *a, **k: True
+        prc.ask_multichoice = lambda *a, **k: []
         args = self._args()
         with redirect_stdout(StringIO()):
             pr.configure_interactively(args)
         self.assertFalse(args.dry_run)
 
     def test_log_dir(self):
-        pr.ask_yes_no = lambda *a, **k: True
-        pr.ask_multichoice = lambda *a, **k: ["log-dir"]
-        pr.ask_path = lambda *a, **k: "/tmp/logs"
+        prc.ask_yes_no = lambda *a, **k: True
+        prc.ask_multichoice = lambda *a, **k: ["log-dir"]
+        prc.ask_path = lambda *a, **k: "/tmp/logs"
         args = self._args()
         with redirect_stdout(StringIO()):
             pr.configure_interactively(args)
@@ -1267,19 +1268,42 @@ class TestAskMultichoice(unittest.TestCase):
 
 
 class TestParseArgs(unittest.TestCase):
-    def test_flags(self):
+    def _parse(self, argv):
         orig = sys.argv
-        sys.argv = ["prog", "/lib", "--dry-run", "--export-only",
-                    "--export-file", "/x.json", "--from-mapping", "/m.json"]
+        sys.argv = ["prog"] + argv
         try:
-            args = pr.parse_args()
+            return pr.parse_args()
         finally:
             sys.argv = orig
+
+    def test_export_flags(self):
+        args = self._parse(["/lib", "--dry-run", "--export-only",
+                            "--export-file", "/x.json"])
         self.assertEqual(args.library, "/lib")
         self.assertTrue(args.dry_run)
         self.assertTrue(args.export_only)
         self.assertEqual(args.export_file, "/x.json")
+
+    def test_from_mapping_flag(self):
+        args = self._parse(["--from-mapping", "/m.json"])
         self.assertEqual(args.from_mapping, "/m.json")
+
+    def test_yes_flag(self):
+        self.assertTrue(self._parse(["--yes"]).yes)
+
+    def test_conflicting_flags_rejected(self):
+        # --from-mapping (apply existing) can't be combined with building a new
+        # mapping (--export-only / --export-file); --migrate-watched needs a
+        # mapping to read.
+        for argv in (["--from-mapping", "/m.json", "--export-only"],
+                     ["--from-mapping", "/m.json", "--export-file", "/x.json"],
+                     ["--migrate-watched"]):
+            with self.subTest(argv=argv):
+                import contextlib
+                with redirect_stdout(StringIO()), \
+                        contextlib.redirect_stderr(StringIO()), \
+                        self.assertRaises(SystemExit):
+                    self._parse(argv)
 
     def test_defaults(self):
         orig = sys.argv
@@ -1294,16 +1318,17 @@ class TestParseArgs(unittest.TestCase):
 
 class TestMainSingleItemWarning(unittest.TestCase):
     def setUp(self):
-        self._saved = (pr.read_mapping, pr.resolve_input_path, pr.apply_mapping)
+        self._saved = (prcli.read_mapping, prcli.resolve_input_path,
+                       prcli.apply_mapping)
 
     def tearDown(self):
-        pr.read_mapping, pr.resolve_input_path, pr.apply_mapping = self._saved
+        prcli.read_mapping, prcli.resolve_input_path, prcli.apply_mapping = self._saved
 
     def _run(self, entries):
         import argparse
-        pr.read_mapping = lambda p: entries
-        pr.resolve_input_path = lambda *a, **k: "/some/dir"
-        pr.apply_mapping = lambda *a, **k: None
+        prcli.read_mapping = lambda p: entries
+        prcli.resolve_input_path = lambda *a, **k: "/some/dir"
+        prcli.apply_mapping = lambda *a, **k: None
         args = argparse.Namespace(library="/some/dir", dry_run=False,
                                   export_only=False, export_file=None,
                                   from_mapping="/m.json")
@@ -1403,26 +1428,26 @@ class TestAnalyzeOutliersBulk(unittest.TestCase):
 
     def test_bulk_fix_all(self):
         items = self._items()
-        orig = pr.ask_yes_no
-        pr.ask_yes_no = lambda *a, **k: True  # yes to "bring all into line"
+        orig = prc.ask_yes_no
+        prc.ask_yes_no = lambda *a, **k: True  # yes to "bring all into line"
         try:
             with redirect_stdout(StringIO()):
                 pr.analyze_and_handle_outliers(items)
         finally:
-            pr.ask_yes_no = orig
+            prc.ask_yes_no = orig
         self.assertFalse(any(it["leave_alone"] for it in items))
 
     def test_bulk_leave_all(self):
         items = self._items()
         # First bulk prompt: no; second bulk prompt ("leave all alone"): yes.
         answers = iter([False, True])
-        orig = pr.ask_yes_no
-        pr.ask_yes_no = lambda *a, **k: next(answers)
+        orig = prc.ask_yes_no
+        prc.ask_yes_no = lambda *a, **k: next(answers)
         try:
             with redirect_stdout(StringIO()):
                 pr.analyze_and_handle_outliers(items)
         finally:
-            pr.ask_yes_no = orig
+            prc.ask_yes_no = orig
         self.assertTrue(items[2]["leave_alone"])
         self.assertTrue(items[3]["leave_alone"])
 
@@ -1485,13 +1510,13 @@ class TestPersistAppliedMapping(unittest.TestCase):
     def setUp(self):
         self.lib = tempfile.mkdtemp()
         self.dl = tempfile.mkdtemp()
-        self._dl = pr.DOWNLOADS
-        pr.DOWNLOADS = self.dl
-        self._yn = pr.ask_yes_no
+        self._dl = prc.DOWNLOADS
+        prc.DOWNLOADS = self.dl
+        self._yn = prc.ask_yes_no
 
     def tearDown(self):
-        pr.DOWNLOADS = self._dl
-        pr.ask_yes_no = self._yn
+        prc.DOWNLOADS = self._dl
+        prc.ask_yes_no = self._yn
         shutil.rmtree(self.lib, ignore_errors=True)
         shutil.rmtree(self.dl, ignore_errors=True)
 
@@ -1510,7 +1535,7 @@ class TestPersistAppliedMapping(unittest.TestCase):
             {"old_path": "/srv/media/Top/top.mkv", "new_name": "Top (1986).mkv",
              "media_type": "movie", "watched_state": {"view_count": 0}},
         ]
-        pr.ask_yes_no = lambda *a, **k: True   # rename + restructure
+        prc.ask_yes_no = lambda *a, **k: True   # rename + restructure
         with redirect_stdout(StringIO()):
             pr.apply_mapping(entries, self.lib, dry_run=False)
         applied = [f for f in os.listdir(self.dl)
