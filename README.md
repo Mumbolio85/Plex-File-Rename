@@ -1,0 +1,366 @@
+# Plex -> Jellyfin Rename Tool
+
+**Renames your messy media files to clean, standard names using the correct**
+**titles and years from Plex -- so your library imports perfectly into Jellyfin**
+(or any other media player).
+
+It takes files like this:
+
+```
+   Before                              After
+   ----------------------------        ----------------------------
+   the.matrix.1999.1080p.x264.mkv  ->  The Matrix (1999).mkv
+   inception[2010]BRRip.mkv        ->  Inception (2010).mkv
+   got.s01e01.web-dl.mkv           ->  Game of Thrones (2011) - S01E01 - Winter Is Coming.mkv
+```
+
+Plex already knows the real title, year, and episode info for every file. This
+tool reads that information and uses it to rename the **actual files on your**
+**computer** to match.
+
+> **Is it safe?**
+> **Yes.** Nothing on your disk is changed until you review a full list of every
+> rename and type **`yes`** to approve it. Every change is also saved to an
+> "undo" file, so any run can be completely reversed. You can even do a **trial**
+> **run** that shows you everything it *would* do without touching a single file.
+
+---
+
+## What's in this folder
+
+| File | What it's for |
+| --- | --- |
+| **`plex_rename.py`** | **The main tool.** This is the one you run. |
+| `plex_undo_rename.py` | Reverses a previous run if you change your mind. |
+| `plex_rename_common.py` | Shared helper code. You never run this directly. |
+| `test_plex_rename.py` | Automated tests. Not needed for normal use. |
+
+---
+
+## Before you start: what you'll need
+
+1. **Python 3** installed (version 3.10 or newer). To check, open a terminal and
+   type `python3 --version`.
+2. **The `plexapi` package.** Install it once by running:
+
+   ```
+   pip install plexapi
+   ```
+
+3. **Access to your Plex server** (you'll connect to it in a moment), and
+4. **The folder on your computer where the media files actually live** -- for
+   example `/Volumes/Media/Movies` (Mac) or `D:\Media\Movies` (Windows). If
+   your files are on a NAS or network drive, make sure it's connected first.
+
+---
+
+## Step-by-step walkthrough
+
+Follow these steps in order. The tool guides you through each one and won't
+change anything until the very end.
+
+### Step 1 — Start the tool
+
+Open a terminal, go to this folder, and run:
+
+```
+python3 plex_rename.py
+```
+
+> 💡 **First time? Do a trial run first.** Add `--dry-run` to the end
+> (`python3 plex_rename.py --dry-run`). It walks through every step exactly the
+> same way but only *shows* you what it would do -- no files are changed. Once
+> you're happy with the preview, run it again without `--dry-run`.
+
+### Step 2 — Connect to your Plex server
+
+You'll be asked how you want to connect. The **easiest** way:
+
+1. Open the Plex web app in your browser.
+2. Hover over any movie or show, click the **`...`** (three dots) button.
+3. Choose **Get Info**, then click **View XML**.
+4. A new browser tab opens with a long web address (URL). **Copy that entire**
+   **URL** and paste it into the tool when asked.
+
+The tool reads your server address and login token straight from that URL -- you
+don't have to find them yourself. (Other connection options are listed in
+[Ways to connect to Plex](#ways-to-connect-to-plex) below.)
+
+### Step 3 — Choose which library to rename
+
+The tool shows a numbered list of your Plex libraries (Movies, TV Shows, etc.).
+Type the number of the one you want and press Enter.
+
+### Step 4 — Point it at your files on this computer
+
+The tool now knows the *correct* names, but it needs to find the matching files
+**on your own computer**. It asks:
+
+```
+Folder on this computer that contains your media files:
+```
+
+Enter the folder you'd open in Finder/Explorer to see the actual video files
+(e.g. `/Volumes/Media/Movies` or `D:\Media\Movies`). The tool then reports how
+many files it successfully matched -- for example *"Matched 248 of 250 files."*
+
+### Step 5 — Review the plan and approve it
+
+This is the important step. The tool prints a complete list of every rename it
+wants to make, shown as `current name -> new name`. Read it over. When you're
+satisfied, type **`yes`** to apply the changes. Type anything else to cancel and
+nothing happens.
+
+### Step 6 (optional) — Organize into Jellyfin folders
+
+After renaming, the tool offers to also tidy everything into Jellyfin's
+recommended folder layout (e.g. each movie in its own `Heat (1995)/` folder).
+This is optional and asks for its own separate `yes`. You can skip it.
+
+### Done!
+
+That's it -- your files are renamed. The tool then offers to process
+**another library** on the same Plex server without reconnecting -- handy if you
+keep Movies and TV Shows in separate libraries. If anything was skipped, or if
+you want to undo the whole thing, see [Undoing a run](#undoing-a-run) below.
+
+---
+
+## Ways to connect to Plex
+
+When you start, you'll be offered three options:
+
+1. **Paste a "View XML" URL** *(easiest)* -- the method described in
+   [Step 2](#step-2--connect-to-your-plex-server) above.
+2. **Enter the server address and token separately** -- e.g. server
+   `http://127.0.0.1:32400` and your Plex token.
+3. **Log in with your Plex account** -- enter your plex.tv username/password
+   (and 2-factor code if you use one); the tool auto-discovers the servers on
+   your account and lets you pick one.
+
+---
+
+## Command-line options
+
+You can run the tool with no arguments at all (it will prompt you for
+everything), or use these flags:
+
+```
+python3 plex_rename.py [library_folder] [options]
+```
+
+| Option | What it does |
+| --- | --- |
+| `library_folder` | The local path to your library folder. If you leave it off, you'll be asked for it. |
+| `--dry-run` | **Preview mode.** Shows every change it would make and touches nothing. Highly recommended for the first run. |
+| `--export-only` | Phase 1 only: connect to Plex, build the mapping, save it to a file, and stop. Doesn't rename anything. |
+| `--export-file PATH` | Save the Plex mapping to this JSON file (otherwise you're asked whether to save it). |
+| `--from-mapping PATH` | Skip Plex entirely and apply a mapping JSON file you exported earlier. |
+| `--log-dir PATH` | Where to write the undo/skip logs (default: `~/Downloads`). |
+| `--version` | Print the tool's version and exit. |
+
+> 💡 Flags can go in any order after the script name; the optional
+> `library_folder` is the one positional argument (e.g.
+> `python3 plex_rename.py /Volumes/Media/Movies --dry-run`).
+
+If you run with **no flags**, the tool also offers an interactive settings menu
+where you can toggle these same options before it starts.
+
+After it finishes a library, the tool offers to process **another library** on
+the same Plex server without reconnecting.
+
+---
+
+## The optional Jellyfin restructure
+
+After renaming, the tool offers to **restructure** your files into Jellyfin's
+recommended folder layout:
+
+- **Movies** -> `Library/Title (Year)/Title (Year).ext`
+- **TV Shows** -> `Library/Series (Year)/Season 01/episode.ext`
+
+This is optional and separately confirmed -- you can rename without
+restructuring, or do both.
+
+---
+
+## Safety features
+
+- **Nothing changes without confirmation.** You always see the full plan and
+  must type `yes`.
+- **`--dry-run`** lets you preview everything, risk-free.
+- **Undo log.** Every move is recorded to a file named
+  `plex_rename_undo_<timestamp>.txt` in your `~/Downloads` folder (or wherever
+  `--log-dir` points).
+- **Skip log.** Anything skipped or failed is recorded to a separate log in the
+  same folder, so you know exactly what didn't get touched and why.
+- **Resilient moves.** A move that hits a transient error (e.g. a brief network
+  hiccup on a NAS) is retried once; anything that still fails is skipped and
+  logged rather than aborting the whole run.
+- **Sidecars stay paired.** Subtitles, `.nfo` metadata, and artwork are moved
+  alongside their video, never orphaned.
+
+---
+
+## Undoing a run
+
+Every apply writes an undo log to `~/Downloads`. To reverse a run:
+
+```
+python3 plex_undo_rename.py
+```
+
+It will ask for the path to the undo log (or pass it directly:
+`python3 plex_undo_rename.py ~/Downloads/plex_rename_undo_20260615_173000.txt`).
+As with the main tool, it shows a full plan, changes nothing until you confirm,
+and supports `--dry-run`.
+
+---
+
+＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝
+
+# !!!  Under the Hood --- How and Why the Tools Work  !!!
+
+> **Everything below this line is optional reading.** It's for the curious or
+> for anyone modifying the scripts. You do **not** need any of it for normal
+> use -- the sections above cover everything required to run the tools.
+
+＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝
+
+### Why two phases, and why a JSON mapping?
+
+Plex knows the *correct* title, year, season, and episode for everything --
+that's the metadata you want in your filenames. But Plex stores files under
+*server-side* paths, which may not match where the files live on the machine
+you're running this from (different drive letters, a mounted network share,
+etc.).
+
+So Phase 1 captures Plex's knowledge as a list of
+`old_path -> new_name` entries (plus all the extra metadata Plex reported), and
+Phase 2 *remaps* those server-side paths onto your **local** folder by:
+
+1. Finding the common root of all the recorded paths (`detect_recorded_root`).
+2. Taking each file's path *relative* to that root.
+3. Re-rooting it under the local library folder you supply.
+
+This is why a library with **only one item** triggers a warning -- with a single
+path there's nothing to compare against, so the structure can't be inferred
+reliably.
+
+The optional **JSON mapping file** is just that list of entries written to disk.
+It's handy as a reviewable, resumable artifact (you can apply it later with
+`--from-mapping`), and it captures *every* scalar field plexapi reported for
+each item, media version, and file part under a `plex` key. JSON is used instead
+of a delimited text format because it survives any character that might appear
+in a path or title.
+
+### How names are built
+
+- **Movies:** `Title (Year).ext`. If a movie has multiple versions (e.g. a 3D
+  cut and a regular cut), an **edition label** is appended:
+  `Title (Year) - [IMAX].ext`. Multi-file movies get `- part1`, `- part2`, etc.
+- **TV:** `Series (Year) - S01E02 - Episode Title.ext`.
+- **Editions / disambiguation:** When two different files would end up with the
+  *same* name, the tool appends a distinguishing tag, in order of preference:
+  Plex's edition title -> a marker found in the path (`3D`, `IMAX`, `Director's
+  Cut`, `Angle 2`, resolution, …) -> finally a generic `version N`. The marker
+  list (`EDITION_MARKERS`) is ordered so longer, more specific tags win over
+  shorter ones they contain (`Extended Cut` before `Extended`, `HDR10` before
+  `HDR`). Multi-angle discs are matched flexibly (`angle1`, `Angle 2`,
+  `angle-3`) and normalized to `Angle N`.
+- **Sanitizing:** Characters illegal in filenames (`<>:"/\|?*`) and ASCII
+  control characters (newlines, tabs, etc.) are stripped from any name the tool
+  generates -- but only from path components *below* your library root, so the
+  root path you typed is never altered.
+
+### Sidecar handling
+
+A "sidecar" is a file that belongs to a video and must travel with it: subtitles
+(`.srt`, `.ass`, `.vtt`, …), `.nfo` metadata, and artwork following the
+`<name>-poster.jpg` / `-fanart` / `-thumb` convention. The tool:
+
+1. Scans for sidecars **once**, at each video's original on-disk location, by
+   matching files that share the video's stem followed by a `.` or `-` boundary
+   (so `Movie 2.mkv` is never mistaken for a sidecar of `Movie.mkv`).
+2. Stores just the *remainder* of each name (e.g. `.en.srt`, `-poster.jpg`).
+3. Projects those remainders onto each move so the sidecar lands next to the
+   renamed video. Because both sides are derived from the stems rather than a
+   fresh disk scan, the real and dry-run paths behave identically -- which is how
+   a dry-run preview can correctly list sidecars for a restructure that follows
+   a rename that hasn't actually happened yet.
+
+### Structure detection & outliers
+
+Before renaming, the tool counts how many folders deep each item sits (loose in
+the root = 0, its own folder = 1, `Show/Season` = 2) and treats the **majority**
+pattern as the norm. Items that don't match are flagged as **outliers**. When
+several are flagged, the tool first offers to bring them **all** into line or
+leave them **all** alone in one step; otherwise (or if you decline both) you
+decide per-item whether to bring each into line or **leave it completely alone**
+(skipped, never renamed). Anything nested deeper than the majority is kept where
+it is rather than guessing at a reconstruction.
+
+### The undo log format
+
+Each applied move is appended to the undo log as
+`<new path> ––––– <original path>`, flushed immediately so a crash mid-run still
+leaves a usable log. Empty folders removed during cleanup are recorded with a
+`[[MKDIR]]` sentinel so `plex_undo_rename.py` can recreate them. The undo tool
+reads the log in **reverse** order (last change undone first) and, like the main
+tool, refuses to overwrite a file that already exists at the destination.
+
+---
+
+### `plex_rename_common.py` -- the shared helpers
+
+This module exists so the apply step and the undo step can never disagree about
+the file formats and behaviors they share. Keeping them in one place guarantees
+both tools use the same:
+
+- **`sanitize()`** and the `INVALID_CHARS` set -- identical filename cleaning.
+- **`SEP`** (the ` ––––– ` separator written into the undo log) and **`SEP_RE`**
+  (a tolerant regex that reads it back, accepting any dash type/count and
+  whitespace so hand-edited logs still parse).
+- **`MKDIR_SENTINEL`** -- the `[[MKDIR]]` marker for recreating removed folders.
+- **`DOWNLOADS`** -- the `~/Downloads` location where logs are written.
+- **`RunLog`** -- records skipped/failed items to the screen and, lazily, to a
+  file that's only created if something is actually skipped.
+- The interactive prompt helpers -- **`ask`**, **`ask_path`**, **`ask_yes_no`**
+  (which shows whether Enter means yes or no via `[Y/n]`/`[y/N]`), **`ask_choice`**,
+  and **`ask_multichoice`** (pick several options by number) -- so both tools
+  prompt consistently.
+- **`clean_path_input()`** -- normalises a pasted path by trimming surrounding
+  quotes/backticks and expanding a leading `~`, shared by every path prompt.
+- **`cleanup_empty_dirs()`** -- removes folders left empty by the moves
+  (bottom-up; a lone `.DS_Store` counts as empty; the root is never removed; on
+  undo, just-recreated folders are preserved). When given an undo log it records
+  each removal so it can be reversed.
+
+---
+
+### `test_plex_rename.py` -- the test suite
+
+A comprehensive `unittest` suite (run it with `python3 test_plex_rename.py`)
+that requires **no live Plex server**. Because `plexapi` is only imported
+*inside* functions, the tests feed in lightweight **fake** Plex objects
+(`FakeMovie`, `FakeShow`, `FakeEpisode`, `FakeMedia`, `FakePart`, …) to exercise
+the scanning logic without a network connection. Coverage includes:
+
+- **Pure helpers** -- URL/token extraction, name building, edition-marker
+  matching, path remapping, Jellyfin target paths.
+- **Filesystem operations** -- sidecar detection, sanitizing, plan building, and
+  actual move execution, all run inside temporary directories that are cleaned
+  up afterward.
+- **JSON round-trips** -- writing a mapping and reading it back, including the
+  handling of malformed, partial, or non-list files.
+- **Plan execution edge cases** -- dry-run changes nothing, existing targets are
+  skipped, a sidecar moving must not falsely "advance" a video whose own move
+  was skipped, etc.
+- **`apply_mapping` integration** -- full rename-then-restructure runs with the
+  interactive prompts patched to scripted answers.
+- **CLI / onboarding** -- argument parsing, the interactive settings picker, and
+  the single-item warning.
+
+The interactive prompts (`ask_yes_no`, `ask_choice`, etc.) are temporarily
+swapped out for canned responses during tests, and standard output is captured,
+so the suite runs fully unattended.
