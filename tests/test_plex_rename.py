@@ -17,12 +17,14 @@ import unittest
 from io import StringIO
 from contextlib import redirect_stdout
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Tests live in tests/; put the repo root (which holds the launcher scripts and
+# the plexrename package) on the path so the imports below resolve.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import plex_rename as pr
-import plex_rename_common as prc
 import plex_undo_rename as und
-import plex_jellyfin_userdata as jf
+from plexrename import common as prc
+from plexrename import jellyfin as jf
 from plexrename import cli as prcli, connect as prconn
 
 
@@ -1537,7 +1539,7 @@ class TestPersistAppliedMapping(unittest.TestCase):
         ]
         prc.ask_yes_no = lambda *a, **k: True   # rename + restructure
         with redirect_stdout(StringIO()):
-            pr.apply_mapping(entries, self.lib, dry_run=False)
+            pr.apply_mapping(entries, self.lib, dry_run=False, skip_step7=True)
         applied = [f for f in os.listdir(self.dl)
                    if f.startswith("plex_rename_applied_")]
         self.assertEqual(len(applied), 1)

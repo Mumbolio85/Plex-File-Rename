@@ -22,9 +22,9 @@ MENU_OPTIONS = [
     ("dry-run",          "Dry run — preview every change, touch nothing"),
     ("export",           "Save the Plex mapping (with all metadata) to a JSON file"),
     ("export-only",      "Export only — build the mapping, then stop (no apply)"),
-    ("from-mapping",     "Apply from an existing mapping file (skip Plex)"),
+    ("from-mapping",     "Apply from an existing mapping file (skip Plex) — also select this to run step 7 standalone"),
     ("log-dir",          "Choose where undo/skip logs are written (default: ~/Downloads)"),
-    ("migrate-watched",  "After organizing, migrate Plex watched-state into Jellyfin (step 7)"),
+    ("skip-step7",       "Skip step 7 — don't offer to migrate Plex watched-state into Jellyfin after organizing"),
 ]
 
 
@@ -117,14 +117,14 @@ def configure_interactively(args):
     if "log-dir" in chosen:
         args.log_dir = common.ask_path("Folder to write undo/skip logs into: ",
                                        must_be_dir=True)
-    if "migrate-watched" in chosen:
-        args.migrate_watched = True
+    if "skip-step7" in chosen:
+        args.skip_step7 = True
 
     enabled = []
     if args.dry_run:
         enabled.append("dry run")
-    if getattr(args, "migrate_watched", False):
-        enabled.append("migrate watched-state (step 7)")
+    if getattr(args, "skip_step7", False):
+        enabled.append("step 7 skipped")
     if args.from_mapping:
         enabled.append(f"apply from {args.from_mapping}")
     else:

@@ -30,7 +30,8 @@ plex-rename = "plexrename.cli:entrypoint"
 plex-undo-rename = "plexrename.undo:entrypoint"
 
 [tool.setuptools]
-# The root plex_rename*.py files are backwards-compatible launchers; the real
-# code is the plexrename package.
+# The root plex_rename.py / plex_undo_rename.py files are thin launchers; the
+# real code is the plexrename package. (The older common/userdata shims now
+# live in legacy/ and are not installed.)
 packages = ["plexrename"]
-py-modules = ["plex_rename", "plex_undo_rename", "plex_rename_common", "plex_jellyfin_userdata"]
+py-modules = ["plex_rename", "plex_undo_rename"]

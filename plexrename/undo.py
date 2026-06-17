@@ -29,7 +29,7 @@ import datetime
 
 from plexrename.common import (
     SEP_RE, MKDIR_SENTINEL, USERDATA_SENTINEL, DOWNLOADS, RunLog, ask, ask_path,
-    ask_yes_no, cleanup_empty_dirs, ensure_writable_dir,
+    ask_yes_no, cleanup_empty_dirs, ensure_writable_dir, make_progress,
 )
 
 
@@ -109,39 +109,62 @@ def main(args):
     # client per server URL, so a file-only undo log never prompts for Jellyfin.
     jf_clients = {}
 
+    progress = make_progress("Reversing change", len(actions))
+    on_progress_line = False
+
+    def detail(text):
+        nonlocal on_progress_line
+        if on_progress_line:
+            print()
+            on_progress_line = False
+        print(text)
+
+    def log_skip(category, target):
+        nonlocal on_progress_line
+        if on_progress_line:
+            print()
+            on_progress_line = False
+        run_log.skip(category, target)
+
     def jf_client_for(server_url):
+        nonlocal on_progress_line
         if server_url not in jf_clients:
             from plexrename.jellyfin import connect_jellyfin
+            if on_progress_line:
+                print()
+                on_progress_line = False
             print(f"\nThis undo restores Jellyfin watched-state on {server_url}.")
             print("Connect to that Jellyfin server to continue.")
             jf_clients[server_url] = connect_jellyfin()
         return jf_clients[server_url]
 
     done = 0
-    for act in actions:
+    for n, act in enumerate(actions, start=1):
+        on_progress_line = progress(n)
+
         if act[0] == "mkdir":
             folder = act[1]
             if dry_run:
-                print(f"  [DRY RUN] would recreate folder: {folder}")
+                detail(f"  [DRY RUN] would recreate folder: {folder}")
                 done += 1
                 continue
             try:
                 os.makedirs(folder, exist_ok=True)
                 done += 1
             except OSError as e:
-                run_log.skip("ERROR", f"recreating {folder}: {e}")
+                log_skip("ERROR", f"recreating {folder}: {e}")
             continue
 
         if act[0] == "userdata":
             _, ident, payload = act
             ident_parts = ident.rsplit("|", 2)
             if len(ident_parts) != 3:
-                run_log.skip("ERROR", f"unparseable watched-state record: {ident}")
+                log_skip("ERROR", f"unparseable watched-state record: {ident}")
                 continue
             server_url, user_id, item_id = ident_parts
             if dry_run:
-                print(f"  [DRY RUN] would restore watched-state for item "
-                      f"{item_id} on {server_url}")
+                detail(f"  [DRY RUN] would restore watched-state for item "
+                       f"{item_id} on {server_url}")
                 done += 1
                 continue
             try:
@@ -149,19 +172,19 @@ def main(args):
                 client.set_user_data(user_id, item_id, payload)
                 done += 1
             except Exception as e:
-                run_log.skip("ERROR", f"restoring watched-state {item_id}: {e}")
+                log_skip("ERROR", f"restoring watched-state {item_id}: {e}")
             continue
 
         _, cur, orig = act
         if not os.path.exists(cur):
-            run_log.skip("MISSING", cur)
+            log_skip("MISSING", cur)
             continue
         if os.path.exists(orig):
-            run_log.skip("ORIGINAL EXISTS", orig)
+            log_skip("ORIGINAL EXISTS", orig)
             continue
         if dry_run:
-            print(f"  [DRY RUN] {cur}")
-            print(f"      -> {orig}")
+            detail(f"  [DRY RUN] {cur}")
+            detail(f"      -> {orig}")
             done += 1
             continue
         try:
@@ -169,13 +192,15 @@ def main(args):
             shutil.move(cur, orig)
             done += 1
         except OSError as e:
-            run_log.skip("ERROR", f"{cur}: {e}")
+            log_skip("ERROR", f"{cur}: {e}")
             continue
         # Folders left empty by these moves are removed once at the end by
         # cleanup_empty_dirs (which also records each removal), so there's no
         # per-file rmdir here.
 
-    print(f"\n{'Would reverse' if dry_run else 'Reversed'} {done} change(s).")
+    if on_progress_line:
+        print()
+    print(f"{'Would reverse' if dry_run else 'Reversed'} {done} change(s).")
 
     # Clean up any folders left empty by the moves above.
     dirs = []

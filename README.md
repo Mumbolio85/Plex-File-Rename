@@ -58,14 +58,14 @@ Everything below is detail.
 | --- | --- |
 | **`plex_rename.py`** | **The main tool.** This is the one you run (or use the `plex-rename` command after `pip install .`). |
 | `plex_undo_rename.py` | Reverses a previous run if you change your mind (`plex-undo-rename`). |
-| `plexrename/` | The package the two launchers above run: the real code, split into focused modules (`common`, `naming`, `connect`, `apply`, `jellyfin`, `undo`, `options`, `cli`). You never run these directly. |
+| `plexrename/` | The package the two launchers above run: the real code, split into focused modules (`common`, `models`, `naming`, `connect`, `apply`, `jellyfin`, `undo`, `options`, `cli`). You never run these directly. |
 | `pyproject.toml` | Packaging metadata: the `plexapi` dependency and the `plex-rename` / `plex-undo-rename` console commands. |
 | `LICENSE` | MIT license. |
-| `test_plex_rename.py`, `test_plex_jellyfin_userdata.py` | Automated tests. Not needed for normal use — see [Development](#development). |
+| `tests/` | Automated tests. Not needed for normal use — see [Development](#development). |
+| `legacy/` | Old `plex_rename_common.py` / `plex_jellyfin_userdata.py` import shims, kept for reference. Not used by the tool. |
 
-> The four `plex_*.py` files in the root are thin launchers kept for
-> backwards compatibility; everything they do lives in the `plexrename`
-> package.
+> The two `plex_*.py` files in the root are thin launchers; everything they do
+> lives in the `plexrename` package.
 
 ---
 
@@ -323,7 +323,7 @@ third-party packages** (`plexapi` is imported lazily, so the logic is exercised
 with fake objects). Run everything with:
 
 ```
-python3 -m unittest discover -p 'test_*.py'
+python3 -m unittest discover -s tests -t . -p 'test_*.py'
 ```
 
 The same command runs in CI (GitHub Actions, Python 3.12) on every push and pull
@@ -425,13 +425,15 @@ it is rather than guessing at a reconstruction.
 Each applied move is appended to the undo log as
 `<new path> ––––– <original path>`, flushed immediately so a crash mid-run still
 leaves a usable log. Empty folders removed during cleanup are recorded with a
-`[[MKDIR]]` sentinel so `plex_undo_rename.py` can recreate them. The undo tool
+`[[MKDIR]]` sentinel so `plex_undo_rename.py` can recreate them. Watched-state
+writes (step 7) are recorded with a `[[USERDATA]]` sentinel that carries the
+prior Jellyfin UserData, so `plex_undo_rename.py` can restore it. The undo tool
 reads the log in **reverse** order (last change undone first) and, like the main
 tool, refuses to overwrite a file that already exists at the destination.
 
 ---
 
-### `plex_rename_common.py` -- the shared helpers
+### `plexrename/common.py` -- the shared helpers
 
 This module exists so the apply step and the undo step can never disagree about
 the file formats and behaviors they share. Keeping them in one place guarantees
@@ -442,6 +444,7 @@ both tools use the same:
   (a tolerant regex that reads it back, accepting any dash type/count and
   whitespace so hand-edited logs still parse).
 - **`MKDIR_SENTINEL`** -- the `[[MKDIR]]` marker for recreating removed folders.
+- **`USERDATA_SENTINEL`** -- the `[[USERDATA]]` marker for recording (and reversing) Jellyfin watched-state writes.
 - **`DOWNLOADS`** -- the `~/Downloads` location where logs are written.
 - **`RunLog`** -- records skipped/failed items to the screen and, lazily, to a
   file that's only created if something is actually skipped.
@@ -458,9 +461,9 @@ both tools use the same:
 
 ---
 
-### `test_plex_rename.py` -- the test suite
+### `tests/` -- the test suite
 
-A comprehensive `unittest` suite (run it with `python3 test_plex_rename.py`)
+A comprehensive `unittest` suite (run it with `python3 -m unittest discover -s tests -t . -p 'test_*.py'`)
 that requires **no live Plex server**. Because `plexapi` is only imported
 *inside* functions, the tests feed in lightweight **fake** Plex objects
 (`FakeMovie`, `FakeShow`, `FakeEpisode`, `FakeMedia`, `FakePart`, …) to exercise
@@ -480,6 +483,14 @@ the scanning logic without a network connection. Coverage includes:
   interactive prompts patched to scripted answers.
 - **CLI / onboarding** -- argument parsing, the interactive settings picker, and
   the single-item warning.
+
+`test_plex_jellyfin_userdata.py` covers the step-7 migration logic using a
+`FakeJellyfinClient` (no live server needed):
+
+- **`merge_userdata` conflict rules** -- watched/play-count/resume/rating merge
+  semantics, double-count prevention, and the `--force` override.
+- **Full `migrate_watched` runs** -- path-first and provider-ID-first matching,
+  dry-run, already-migrated skipping, and undo-log recording.
 
 The interactive prompts (`ask_yes_no`, `ask_choice`, etc.) are temporarily
 swapped out for canned responses during tests, and standard output is captured,

@@ -77,9 +77,9 @@ def run_apply_phase(entries, args, dry_run, log_dir):
         "Folder on this computer that contains your media files: ",
         must_be_dir=True)
     apply_mapping(entries, library_folder, dry_run, log_dir,
-                  migrate_watched_requested=getattr(args, "migrate_watched", False),
                   force=getattr(args, "force", False),
-                  assume_yes=getattr(args, "yes", False))
+                  assume_yes=getattr(args, "yes", False),
+                  skip_step7=getattr(args, "skip_step7", False))
 
 
 def run_standalone_migrate(args, dry_run, log_dir):
@@ -124,8 +124,7 @@ def run_standalone_migrate(args, dry_run, log_dir):
         undo_log, undo_path = None, None
     else:
         undo_path = os.path.join(log_dir, f"plex_migrate_undo_{stamp}.txt")
-        undo_log = open(undo_path, "w", encoding="utf-8")
-        print(f"\nUndo log: {undo_path}")
+        undo_log = common.UndoLog(undo_path)
     migrated_log = MigratedLog(os.path.join(log_dir, "plex_jf_migrated.json"))
     try:
         migrate_watched(entries, client, user_id, dry_run=dry_run,
@@ -138,7 +137,7 @@ def run_standalone_migrate(args, dry_run, log_dir):
         run_log.close()
     if run_log.created:
         print(f"Some items were skipped/failed. See:\n  {run_log.path}")
-    if undo_path is not None:
+    if undo_log is not None and undo_log.created:
         print(f"To reverse, run plex_undo_rename.py on:\n  {undo_path}")
 
 

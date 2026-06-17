@@ -16,6 +16,7 @@ import datetime
 from collections import Counter, defaultdict
 
 from plexrename.common import sanitize, make_progress
+from plexrename.models import Entry, MovieEntry, TVEntry
 
 
 # --------------------------------------------------------------------------- #
@@ -179,7 +180,7 @@ def video_parts(media):
         yield i, total, old_path, ext, part
 
 
-def collect_movie_entries(item):
+def collect_movie_entries(item) -> list[MovieEntry]:
     """Returns one rich dict per video file. The disambiguation pass may later
     adjust 'new_name'. Each dict carries the operational fields the apply phase
     needs (old_path/new_name/media_type) plus all the plexapi metadata for the
@@ -227,7 +228,7 @@ def collect_movie_entries(item):
     return entries
 
 
-def disambiguate_movies(movie_entries):
+def disambiguate_movies(movie_entries: list[MovieEntry]) -> None:
     """When separate Plex items map to the same filename, append an edition tag
     so they no longer collide. Tries the item's edition title, then a marker
     found in the path (e.g. 3D/IMAX), then resolution, then 'version N'."""
@@ -252,7 +253,7 @@ def disambiguate_movies(movie_entries):
             d["new_name"] = f"{base} - [{label}]{ext}"
 
 
-def collect_episode_entries(show, episode):
+def collect_episode_entries(show, episode) -> list[TVEntry]:
     """Like collect_movie_entries, but for TV: one rich dict per episode file
     carrying the show/episode/media/part plexapi metadata under 'plex'."""
     entries = []
@@ -292,7 +293,7 @@ def collect_episode_entries(show, episode):
     return entries
 
 
-def collect_entries(section):
+def collect_entries(section) -> list[Entry]:
     """Build the in-memory mapping as a list of rich per-file dicts. Every dict
     carries 'old_path', 'new_name', and 'media_type' (all the apply phase needs)
     plus the full plexapi metadata, so a mixed (movies + TV) library restructures
@@ -328,7 +329,7 @@ def collect_entries(section):
 # --------------------------------------------------------------------------- #
 # Mapping JSON IO
 # --------------------------------------------------------------------------- #
-def write_mapping(entries, out_path):
+def write_mapping(entries: list[Entry], out_path: str) -> None:
     """Write the full mapping as JSON: a list of per-file objects holding the
     proposed name plus all the metadata captured from plexapi. JSON keeps every
     field explicitly labelled and survives any character in a path or name,
@@ -338,7 +339,7 @@ def write_mapping(entries, out_path):
     print(f"Wrote {len(entries)} entries to {out_path}")
 
 
-def read_mapping(path):
+def read_mapping(path: str) -> list[Entry]:
     """Load a mapping JSON file (the list of per-file objects written by
     write_mapping) back into entry dicts. Only 'old_path', 'new_name', and
     'media_type' are required by the apply phase; any extra plexapi metadata is

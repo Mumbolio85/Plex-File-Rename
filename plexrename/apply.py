@@ -21,6 +21,7 @@ import datetime
 from collections import Counter
 
 from plexrename import common
+from plexrename.models import Entry
 from plexrename.naming import write_mapping
 
 # Sidecar files that belong to a video and must travel with it on rename.
@@ -127,7 +128,7 @@ def relative_components(old_path, recorded_root):
     return rel.split("/")
 
 
-def build_items(entries: list[dict], library_folder: str) -> tuple[list[dict], str]:
+def build_items(entries: list[Entry], library_folder: str) -> tuple[list[dict], str]:
     """Map every mapping entry (a rich dict) onto the local filesystem. This is
     the slow phase on a network share: each item gets an existence check plus a
     sidecar scan, so it shows progress as it goes. A per-folder listing cache
@@ -495,11 +496,13 @@ def migrate_watched_inline(entries, undo_log, run_log, log_dir, force,
                     migrated_log=migrated_log, force=force)
 
 
-def apply_mapping(entries, library_folder, dry_run, log_dir=None,
-                  migrate_watched_requested=False, force=False, assume_yes=False):
+def apply_mapping(entries: list[Entry], library_folder: str, dry_run: bool,
+                  log_dir: str | None = None, force: bool = False,
+                  assume_yes: bool = False, skip_step7: bool = False) -> None:
     """Phase 2: remap onto the local folder, plan, confirm, apply, restructure,
-    and -- if step 6 ran and step 7 was requested -- migrate watched-state into
-    Jellyfin. Undo/skip logs are written to log_dir (defaults to ~/Downloads)."""
+    and -- if step 6 ran and skip_step7 is False -- offer step 7 (migrate
+    watched-state into Jellyfin). Undo/skip logs are written to log_dir
+    (defaults to ~/Downloads)."""
     log_dir = common.ensure_writable_dir(log_dir or common.DOWNLOADS)
     items, recorded_root = build_items(entries, library_folder)
     print(f"Plex stores these files under:   {recorded_root}")
@@ -529,8 +532,7 @@ def apply_mapping(entries, library_folder, dry_run, log_dir=None,
         undo_path = None
     else:
         undo_path = os.path.join(log_dir, f"plex_rename_undo_{stamp}.txt")
-        undo_log = open(undo_path, "w", encoding="utf-8")
-        print(f"\nUndo log: {undo_path}")
+        undo_log = common.UndoLog(undo_path)
 
     jellyfin_ran = False  # set True only if the step-6 restructure executes
     try:
@@ -578,17 +580,18 @@ def apply_mapping(entries, library_folder, dry_run, log_dir=None,
             for d in removed:
                 print(f"  {d}")
 
-        # Step 7 is gated on step 6 having actually run (path-first matching
-        # needs each item's post-restructure result_path) and only outside a
-        # dry run. result_path is persisted back into a saved mapping so the
+        # Step 7: offered whenever step 6 ran and watched-state was captured.
+        # Gated on step 6 so result_path reflects the post-restructure location.
+        # result_path is also persisted back into a saved mapping so the
         # standalone --migrate-watched mode can reuse it later.
-        if jellyfin_ran and not dry_run and any(e.get("watched_state") for e in entries):
+        if jellyfin_ran and not dry_run \
+                and any(e.get("watched_state") for e in entries):
             applied_path = os.path.join(log_dir, f"plex_rename_applied_{stamp}.json")
             attach_result_paths(items, entries)
             write_mapping(entries, applied_path)
             print(f"Saved a post-restructure mapping (for later --migrate-watched):"
                   f"\n  {applied_path}")
-            if migrate_watched_requested:
+            if not skip_step7:
                 migrate_watched_inline(entries, undo_log, run_log, log_dir, force,
                                        assume_yes)
     finally:
@@ -599,5 +602,5 @@ def apply_mapping(entries, library_folder, dry_run, log_dir=None,
     print("\nDone." if not dry_run else "\nDone (dry run — nothing changed).")
     if run_log.created:
         print(f"Some items were skipped/failed. See:\n  {run_log.path}")
-    if undo_path is not None:
+    if undo_log is not None and undo_log.created:
         print(f"To reverse changes, the undo log maps new -> original at:\n  {undo_path}")

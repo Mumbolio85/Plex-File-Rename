@@ -45,6 +45,7 @@ from plexrename import __version__
 from plexrename.common import (
     SEP, USERDATA_SENTINEL, ask, ask_choice, make_progress,
 )
+from plexrename.models import Entry
 
 # Sent in the Authorization header; purely cosmetic identity for the server.
 CLIENT_NAME = "plex-rename"
@@ -560,8 +561,9 @@ class MigratedLog:
 # =========================================================================== #
 # Core migration (one path, used by both inline and standalone entry points)
 # =========================================================================== #
-def migrate_watched(entries, client, user_id, *, dry_run, undo_log, run_log,
-                    migrated_log, force, provider_first=False):
+def migrate_watched(entries: list[Entry], client, user_id: str, *, dry_run: bool,
+                    undo_log, run_log, migrated_log, force: bool,
+                    provider_first: bool = False):
     """For each entry with captured watched-state: match it to a Jellyfin item,
     read that item's current UserData, merge per the rules, and (unless dry-run)
     write it back -- recording the prior UserData to undo_log first and the

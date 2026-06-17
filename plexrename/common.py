@@ -138,6 +138,32 @@ class RunLog:
             self.fh.close()
 
 
+class UndoLog:
+    """Lazy undo log: the file is only created when the first entry is written,
+    so an empty undo log is never left on disk after a run where nothing moved."""
+
+    def __init__(self, path):
+        self.path = path
+        self.fh = None
+
+    def write(self, text):
+        if self.fh is None:
+            self.fh = open(self.path, "w", encoding="utf-8")
+        self.fh.write(text)
+
+    def flush(self):
+        if self.fh is not None:
+            self.fh.flush()
+
+    @property
+    def created(self):
+        return self.fh is not None
+
+    def close(self):
+        if self.fh is not None:
+            self.fh.close()
+
+
 # --------------------------------------------------------------------------- #
 # Input helpers
 # --------------------------------------------------------------------------- #

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Plex -> Jellyfin rename tool (export + apply combined).
+Plex -> Jellyfin rename tool.
 
 This file is the historical entry point and a backwards-compatible facade: the
 implementation now lives in the `plexrename` package, split into focused

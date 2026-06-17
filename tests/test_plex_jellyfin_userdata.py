@@ -13,10 +13,12 @@ import unittest
 from io import StringIO
 from contextlib import redirect_stdout
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Tests live in tests/; put the repo root (which holds the plexrename package)
+# on the path so the imports below resolve.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import plex_jellyfin_userdata as jf
-import plex_rename_common as prc
+from plexrename import jellyfin as jf
+from plexrename import common as prc
 
 
 # --------------------------------------------------------------------------- #
