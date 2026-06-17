@@ -33,7 +33,9 @@ tool reads that information and uses it to rename the **actual files on your**
 | **`plex_rename.py`** | **The main tool.** This is the one you run. |
 | `plex_undo_rename.py` | Reverses a previous run if you change your mind. |
 | `plex_rename_common.py` | Shared helper code. You never run this directly. |
+| `plex_jellyfin_userdata.py` | Step 7: migrates Plex watched-state into Jellyfin (used by the main tool; not run directly). |
 | `test_plex_rename.py` | Automated tests. Not needed for normal use. |
+| `test_plex_jellyfin_userdata.py` | Automated tests for step 7. Not needed for normal use. |
 
 ---
 
@@ -157,6 +159,8 @@ python3 plex_rename.py [library_folder] [options]
 | `--export-file PATH` | Save the Plex mapping to this JSON file (otherwise you're asked whether to save it). |
 | `--from-mapping PATH` | Skip Plex entirely and apply a mapping JSON file you exported earlier. |
 | `--log-dir PATH` | Where to write the undo/skip logs (default: `~/Downloads`). |
+| `--migrate-watched` | **Step 7 (standalone).** Migrate Plex watched-state into Jellyfin from a post-restructure mapping. Use with `--from-mapping`. See [Step 7](#step-7-optional--migrate-watched-state-into-jellyfin). |
+| `--force` | With `--migrate-watched`, re-add play counts to items already migrated (otherwise they're skipped to avoid double-counting). |
 | `--version` | Print the tool's version and exit. |
 
 > 💡 Flags can go in any order after the script name; the optional
@@ -181,6 +185,70 @@ recommended folder layout:
 
 This is optional and separately confirmed -- you can rename without
 restructuring, or do both.
+
+---
+
+## Step 7 (optional) — Migrate watched-state into Jellyfin
+
+Steps 1–6 only move *files*. They never carry your Plex **user data**: what's
+watched/unwatched, play counts, resume positions, and your personal ratings.
+**Step 7** copies that into Jellyfin over its REST API (so it works on any
+Jellyfin 10.11.x version and any database backend, with the server left running).
+
+It matches each Plex item to its Jellyfin counterpart differently depending on
+how you run it:
+
+- **Inline** (right after the restructure, same machine): by the file's final
+  path first, falling back to the filename, then IMDb/TMDb/TVDB provider IDs.
+- **Standalone** (`--migrate-watched`, possibly a different machine): by
+  **provider IDs first**, falling back to the **filename** — because a path
+  recorded on one machine usually won't line up with the Jellyfin server's.
+
+> **Important — let Jellyfin scan first.** Jellyfin can only hold watched-state
+> for files it has already *scanned in*. Since step 6 just moved the files, run a
+> Jellyfin library scan (Dashboard → Scan All Libraries) and let it finish before
+> migrating. The tool reminds you and waits.
+
+**Two ways to run it:**
+
+1. **Inline**, right after the restructure — enable it from the interactive
+   settings menu (or `--migrate-watched`). The tool reminds you to scan, waits,
+   then migrates.
+2. **Standalone**, later — re-run with any saved v2.0 mapping:
+
+   ```
+   python3 plex_rename.py --migrate-watched --from-mapping ~/Downloads/plex_rename_applied_<timestamp>.json
+   ```
+
+   A `plex_rename_applied_*.json` is written automatically when a restructure
+   runs, but any mapping exported with this version works too — they all carry
+   the captured watched-state plus the provider IDs and filename this mode
+   matches on.
+
+**How conflicts are resolved (merge, never regress):**
+
+- **Watched** — stays watched if Jellyfin already had it watched; otherwise set
+  from Plex. Never un-watches.
+- **Play count** — Plex's count is **added** to Jellyfin's. To avoid
+  double-counting, each migrated item is logged; re-running won't add again
+  unless you pass `--force`.
+- **Resume position** — the larger of the two offsets wins.
+- **User rating** — Plex's rating is applied only if it wouldn't lower Jellyfin's.
+
+> Favorites are **not** migrated: Plex has no native per-item favorite flag, so
+> there's nothing reliable to carry across.
+
+**Connecting to Jellyfin:** you'll be offered to enter the server URL + an API
+key, or to log in with a username/password. To make an API key: log in to
+Jellyfin → your user profile → **Dashboard** → **API Keys** → **New API Key** →
+copy it.
+
+Step 7 needs network access to your Jellyfin server, but **no extra Python
+package** (it uses only the standard library).
+
+Every watched-state write is recorded in the same undo log as the file moves, so
+`plex_undo_rename.py` can put the prior values back (it connects to Jellyfin only
+when it encounters such a record).
 
 ---
 

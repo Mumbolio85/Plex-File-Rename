@@ -76,6 +76,11 @@ SEP_RE = re.compile(r"\s+[–—\-]{3,}\s+")
 # apply and should be recreated on undo.
 MKDIR_SENTINEL = "[[MKDIR]]"
 
+# Right-hand sentinel in the undo log marking a step-7 watched-state write. The
+# left field is "<server_url>|<user_id>|<item_id>" and the JSON of the item's
+# PRIOR Jellyfin UserData follows the sentinel, so undo can restore it.
+USERDATA_SENTINEL = "[[USERDATA]]"
+
 DOWNLOADS = os.path.expanduser("~/Downloads")
 
 

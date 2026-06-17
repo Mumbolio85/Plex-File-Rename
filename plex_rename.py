@@ -67,7 +67,7 @@ from plex_rename_common import (
     cleanup_empty_dirs, clean_path_input, make_progress,
 )
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 
 # Sidecar files that belong to a video and must travel with it on rename.
 SUBTITLE_EXTS = {".srt", ".ass", ".ssa", ".sub", ".idx", ".vtt", ".smi", ".sup"}
@@ -254,6 +254,39 @@ def plex_attrs(obj):
     return out
 
 
+def iso_or_none(value):
+    """ISO-format a datetime for JSON, pass through anything else (incl. None)."""
+    if isinstance(value, datetime.datetime):
+        return value.isoformat()
+    return value
+
+
+def plex_guids(obj):
+    """Return the provider GUIDs of a plexapi object as scalar strings, e.g.
+    ['imdb://tt0113277', 'tmdb://603']. plex_attrs() can't capture these -- they
+    live in obj.guids as nested Guid objects, not scalars -- so step 7's
+    provider-ID matching needs this explicit extraction. Best-effort: a server
+    that didn't return guids just yields an empty list."""
+    out = []
+    for g in getattr(obj, "guids", None) or []:
+        gid = getattr(g, "id", None)
+        if isinstance(gid, str) and gid:
+            out.append(gid)
+    return out
+
+
+def watched_state(obj):
+    """Snapshot the Plex user-data fields step 7 migrates into Jellyfin. Kept as
+    first-class normalized keys (not buried in the raw plex blob) so the shape is
+    stable across tool versions and matching/merging never has to dig."""
+    return {
+        "view_count": getattr(obj, "viewCount", 0) or 0,
+        "view_offset_ms": getattr(obj, "viewOffset", 0) or 0,
+        "last_viewed_at": iso_or_none(getattr(obj, "lastViewedAt", None)),
+        "user_rating": getattr(obj, "userRating", None),
+    }
+
+
 def build_new_name(title, year, ext, part_index=None, total_parts=1, edition=None):
     base = f"{title} ({year})" if year else title
     if edition:
@@ -376,6 +409,10 @@ def collect_movie_entries(item):
                 "video_resolution": res,
                 "part_index": i,
                 "total_parts": total_parts,
+                # Step-7 (watched-state migration) fields, captured here while
+                # we're connected to Plex; absent/ignored by steps 1-6.
+                "watched_state": watched_state(item),
+                "provider_ids": plex_guids(item),
                 "plex": {"item": item_meta,
                          "media": media_meta,
                          "part": plex_attrs(part)},
@@ -435,6 +472,11 @@ def collect_episode_entries(show, episode):
                 "episode_title": episode.title,
                 "part_index": i,
                 "total_parts": total_parts,
+                # Step-7 fields. provider_ids are the episode's own; the show's
+                # are kept separately for the series + season/episode fallback.
+                "watched_state": watched_state(episode),
+                "provider_ids": plex_guids(episode),
+                "show_provider_ids": plex_guids(show),
                 "plex": {"show": show_meta,
                          "episode": episode_meta,
                          "media": media_meta,
@@ -932,9 +974,49 @@ def execute_plan(plan, undo_log, run_log, dry_run=False, label="Processing"):
     return done
 
 
-def apply_mapping(entries, library_folder, dry_run, log_dir=None):
-    """Phase 2: remap onto the local folder, plan, confirm, apply, restructure.
-    Undo/skip logs are written to log_dir (defaults to ~/Downloads)."""
+def attach_result_paths(items, entries):
+    """Copy each item's final on-disk result_path back onto its source entry
+    (joined by old_path), so a saved mapping can later drive standalone step 7
+    by path. Entries with no matching item keep whatever they had."""
+    by_old = {it["old_recorded"]: it["result_path"] for it in items}
+    for e in entries:
+        rp = by_old.get(e.get("old_path"))
+        if rp:
+            e["result_path"] = rp
+
+
+def migrate_watched_inline(entries, undo_log, run_log, log_dir, force):
+    """Inline step 7 right after a restructure: explain the scan-first rule,
+    connect to Jellyfin, wait for the user's scan to finish, then migrate. The
+    Jellyfin module is imported lazily so steps 1-6 never depend on it."""
+    from plex_jellyfin_userdata import (
+        connect_jellyfin, choose_jellyfin_user, migrate_watched, MigratedLog,
+    )
+    print("\n--- Optional step 7: migrate watched-state into Jellyfin ---")
+    print("Jellyfin can only carry watched-state for files it has already")
+    print("SCANNED. The files were just moved, so trigger a library scan in")
+    print("Jellyfin (Dashboard -> Scan All Libraries) and let it finish.")
+    if not ask_yes_no("Migrate watched-state into Jellyfin now?", default="n"):
+        return
+    client = connect_jellyfin()
+    user_id = choose_jellyfin_user(client)
+    if not user_id:
+        print("  No Jellyfin user available; skipping watched-state migration.")
+        return
+    # Scan-wait: now that we're connected, let the user run + finish the scan so
+    # the library index we build next actually sees the just-moved items.
+    ask("  Start a Jellyfin library scan, let it FINISH, then press Enter... ")
+    migrated_log = MigratedLog(os.path.join(log_dir, "plex_jf_migrated.json"))
+    migrate_watched(entries, client, user_id, dry_run=False,
+                    undo_log=undo_log, run_log=run_log,
+                    migrated_log=migrated_log, force=force)
+
+
+def apply_mapping(entries, library_folder, dry_run, log_dir=None,
+                  migrate_watched_requested=False, force=False):
+    """Phase 2: remap onto the local folder, plan, confirm, apply, restructure,
+    and -- if step 6 ran and step 7 was requested -- migrate watched-state into
+    Jellyfin. Undo/skip logs are written to log_dir (defaults to ~/Downloads)."""
     log_dir = log_dir or DOWNLOADS
     items, recorded_root = build_items(entries, library_folder)
     print(f"Plex stores these files under:   {recorded_root}")
@@ -966,6 +1048,7 @@ def apply_mapping(entries, library_folder, dry_run, log_dir=None):
         undo_log = open(undo_path, "w", encoding="utf-8")
         print(f"\nUndo log: {undo_path}")
 
+    jellyfin_ran = False  # set True only if the step-6 restructure executes
     try:
         plan = build_rename_plan(items, majority_levels, library_folder)
         if preview_and_confirm(plan, "RENAME PLAN", dry_run):
@@ -997,6 +1080,7 @@ def apply_mapping(entries, library_folder, dry_run, log_dir=None):
             jplan = build_jellyfin_plan(items, library_folder)
             if preview_and_confirm(jplan, "JELLYFIN RESTRUCTURE PLAN", dry_run):
                 execute_plan(jplan, undo_log, run_log, dry_run, label="Organizing")
+                jellyfin_ran = True
             elif jplan:
                 print("Restructure skipped.")
 
@@ -1007,6 +1091,19 @@ def apply_mapping(entries, library_folder, dry_run, log_dir=None):
             print(f"\n{label} {len(removed)} empty folder(s):")
             for d in removed:
                 print(f"  {d}")
+
+        # Step 7 is gated on step 6 having actually run (path-first matching
+        # needs each item's post-restructure result_path) and only outside a
+        # dry run. result_path is persisted back into a saved mapping so the
+        # standalone --migrate-watched mode can reuse it later.
+        if jellyfin_ran and not dry_run and any(e.get("watched_state") for e in entries):
+            applied_path = os.path.join(log_dir, f"plex_rename_applied_{stamp}.json")
+            attach_result_paths(items, entries)
+            write_mapping(entries, applied_path)
+            print(f"Saved a post-restructure mapping (for later --migrate-watched):"
+                  f"\n  {applied_path}")
+            if migrate_watched_requested:
+                migrate_watched_inline(entries, undo_log, run_log, log_dir, force)
     finally:
         if undo_log is not None:
             undo_log.close()
@@ -1038,6 +1135,13 @@ def parse_args():
                    help="Skip Plex; apply a previously exported mapping JSON file.")
     p.add_argument("--log-dir",
                    help="Where to write the undo/skip logs (default: ~/Downloads).")
+    p.add_argument("--migrate-watched", action="store_true",
+                   help="Step 7 (standalone): migrate Plex watched-state into "
+                        "Jellyfin using a post-restructure mapping (needs "
+                        "--from-mapping).")
+    p.add_argument("--force", action="store_true",
+                   help="With --migrate-watched, re-add play counts to items "
+                        "already in the migration log (double-counts).")
     p.add_argument("--version", action="version",
                    version=f"%(prog)s {__version__}")
     return p.parse_args()
@@ -1081,6 +1185,7 @@ def configure_interactively(args):
         ("export-only",  "Export only — build the mapping, then stop (no apply)"),
         ("from-mapping", "Apply from an existing mapping file (skip Plex)"),
         ("log-dir",      "Choose where undo/skip logs are written (default: ~/Downloads)"),
+        ("migrate-watched", "After organizing, migrate Plex watched-state into Jellyfin (step 7)"),
     ]
     chosen = set(ask_multichoice("\nAvailable settings — choose any "
                                  "combination:", options))
@@ -1105,10 +1210,14 @@ def configure_interactively(args):
     if "log-dir" in chosen:
         args.log_dir = ask_path("Folder to write undo/skip logs into: ",
                                 must_be_dir=True)
+    if "migrate-watched" in chosen:
+        args.migrate_watched = True
 
     enabled = []
     if args.dry_run:
         enabled.append("dry run")
+    if getattr(args, "migrate_watched", False):
+        enabled.append("migrate watched-state (step 7)")
     if args.from_mapping:
         enabled.append(f"apply from {args.from_mapping}")
     else:
@@ -1148,14 +1257,74 @@ def run_apply_phase(entries, args, dry_run, log_dir):
         args.library,
         "Folder on this computer that contains your media files: ",
         must_be_dir=True)
-    apply_mapping(entries, library_folder, dry_run, log_dir)
+    apply_mapping(entries, library_folder, dry_run, log_dir,
+                  migrate_watched_requested=getattr(args, "migrate_watched", False),
+                  force=getattr(args, "force", False))
+
+
+def run_standalone_migrate(args, dry_run, log_dir):
+    """Step 7 on its own (--migrate-watched): read a saved mapping, connect to
+    Jellyfin, and migrate watched-state. Matching is provider-ID-first with a
+    filename fallback, so it works even when this machine's recorded paths don't
+    line up with the Jellyfin server's. Kept separate from apply so it never
+    touches files. Logs/undo mirror the apply phase's conventions."""
+    from plex_jellyfin_userdata import (
+        connect_jellyfin, choose_jellyfin_user, migrate_watched, MigratedLog,
+    )
+    if not args.from_mapping:
+        print("--migrate-watched needs --from-mapping (a saved mapping JSON, "
+              "e.g. an export or a plex_rename_applied_*.json).")
+        sys.exit(1)
+    mapping_file = resolve_input_path(
+        args.from_mapping, "Path to the saved mapping (.json): ",
+        must_be_file=True)
+    entries = read_mapping(mapping_file)
+    if not entries:
+        print("No usable entries found in the mapping file. Exiting.")
+        return
+    if not any(e.get("watched_state") for e in entries):
+        print("This mapping has no captured watched-state, so there's nothing "
+              "to migrate. Export a fresh mapping with this version (v2.0+), "
+              "which records watched-state during the Plex scan.")
+        sys.exit(1)
+
+    client = connect_jellyfin()
+    user_id = choose_jellyfin_user(client)
+    if not user_id:
+        print("No Jellyfin user available. Exiting.")
+        return
+
+    log_dir = log_dir or DOWNLOADS
+    stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_log = RunLog(os.path.join(log_dir, f"plex_migrate_skipped_{stamp}.txt"),
+                     header="Items skipped/failed during watched-state migration")
+    if dry_run:
+        undo_log, undo_path = None, None
+    else:
+        undo_path = os.path.join(log_dir, f"plex_migrate_undo_{stamp}.txt")
+        undo_log = open(undo_path, "w", encoding="utf-8")
+        print(f"\nUndo log: {undo_path}")
+    migrated_log = MigratedLog(os.path.join(log_dir, "plex_jf_migrated.json"))
+    try:
+        migrate_watched(entries, client, user_id, dry_run=dry_run,
+                        undo_log=undo_log, run_log=run_log,
+                        migrated_log=migrated_log, force=args.force,
+                        provider_first=True)
+    finally:
+        if undo_log is not None:
+            undo_log.close()
+        run_log.close()
+    if run_log.created:
+        print(f"Some items were skipped/failed. See:\n  {run_log.path}")
+    if undo_path is not None:
+        print(f"To reverse, run plex_undo_rename.py on:\n  {undo_path}")
 
 
 def main(args):
     print("=== Plex -> Jellyfin rename tool ===")
     # With no flags given, offer the interactive settings picker first.
     if not (args.dry_run or args.export_only or args.export_file
-            or args.from_mapping):
+            or args.from_mapping or getattr(args, "migrate_watched", False)):
         configure_interactively(args)
 
     dry_run = args.dry_run
@@ -1170,6 +1339,11 @@ def main(args):
         if not os.path.isdir(log_dir):
             print(f"--log-dir is not a folder: {log_dir}")
             sys.exit(1)
+
+    # Step 7 standalone: migrate watched-state from a saved mapping, no files.
+    if getattr(args, "migrate_watched", False):
+        run_standalone_migrate(args, dry_run, log_dir)
+        return
 
     # --- Obtain the mapping (entries) ---
     if args.from_mapping:

@@ -21,6 +21,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import plex_rename as pr
 import plex_rename_common as prc
+import plex_undo_rename as und
+import plex_jellyfin_userdata as jf
 
 
 # --------------------------------------------------------------------------- #
@@ -1423,6 +1425,184 @@ class TestAnalyzeOutliersBulk(unittest.TestCase):
             pr.ask_yes_no = orig
         self.assertTrue(items[2]["leave_alone"])
         self.assertTrue(items[3]["leave_alone"])
+
+
+# --------------------------------------------------------------------------- #
+# Step 7: Phase-1 watched-state capture
+# --------------------------------------------------------------------------- #
+class FakeGuid:
+    def __init__(self, id):
+        self.id = id
+
+
+class TestPhase1Capture(unittest.TestCase):
+    def test_movie_captures_watched_state_and_guids(self):
+        item = FakeMovie("Heat", 1995, [FakeMedia(["/srv/Heat/Heat.mkv"])])
+        item.viewCount = 2
+        item.viewOffset = 1500
+        item.userRating = 8.0
+        item.guids = [FakeGuid("imdb://tt0113277"), FakeGuid("tmdb://949")]
+        e = pr.collect_movie_entries(item)[0]
+        self.assertEqual(e["watched_state"]["view_count"], 2)
+        self.assertEqual(e["watched_state"]["view_offset_ms"], 1500)
+        self.assertEqual(e["watched_state"]["user_rating"], 8.0)
+        self.assertEqual(e["provider_ids"], ["imdb://tt0113277", "tmdb://949"])
+
+    def test_movie_defaults_when_unwatched(self):
+        item = FakeMovie("Heat", 1995, [FakeMedia(["/srv/Heat/Heat.mkv"])])
+        e = pr.collect_movie_entries(item)[0]
+        self.assertEqual(e["watched_state"]["view_count"], 0)
+        self.assertEqual(e["provider_ids"], [])
+
+    def test_episode_captures_show_provider_ids(self):
+        ep = FakeEpisode(2, 5, "The One", [FakeMedia(["/srv/Show/s2e5.mkv"])])
+        ep.viewCount = 1
+        ep.guids = [FakeGuid("tvdb://111")]
+        show = FakeShow("Show", 2000, [ep])
+        show.guids = [FakeGuid("tvdb://999")]
+        e = pr.collect_episode_entries(show, ep)[0]
+        self.assertEqual(e["watched_state"]["view_count"], 1)
+        self.assertEqual(e["provider_ids"], ["tvdb://111"])
+        self.assertEqual(e["show_provider_ids"], ["tvdb://999"])
+
+
+class TestPlexGuids(unittest.TestCase):
+    def test_extracts_ids(self):
+        class O:
+            pass
+        o = O()
+        o.guids = [FakeGuid("imdb://tt1"), FakeGuid("tmdb://2")]
+        self.assertEqual(pr.plex_guids(o), ["imdb://tt1", "tmdb://2"])
+
+    def test_no_guids_attr(self):
+        self.assertEqual(pr.plex_guids(object()), [])
+
+
+# --------------------------------------------------------------------------- #
+# Step 7: apply persists a post-restructure mapping (result_path)
+# --------------------------------------------------------------------------- #
+class TestPersistAppliedMapping(unittest.TestCase):
+    def setUp(self):
+        self.lib = tempfile.mkdtemp()
+        self.dl = tempfile.mkdtemp()
+        self._dl = pr.DOWNLOADS
+        pr.DOWNLOADS = self.dl
+        self._yn = pr.ask_yes_no
+
+    def tearDown(self):
+        pr.DOWNLOADS = self._dl
+        pr.ask_yes_no = self._yn
+        shutil.rmtree(self.lib, ignore_errors=True)
+        shutil.rmtree(self.dl, ignore_errors=True)
+
+    def _mk(self, *rel):
+        path = os.path.join(self.lib, *rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        open(path, "w").close()
+        return path
+
+    def test_applied_mapping_has_result_path(self):
+        self._mk("Heat", "heat.mkv")
+        self._mk("Top", "top.mkv")
+        entries = [
+            {"old_path": "/srv/media/Heat/heat.mkv", "new_name": "Heat (1995).mkv",
+             "media_type": "movie", "watched_state": {"view_count": 1}},
+            {"old_path": "/srv/media/Top/top.mkv", "new_name": "Top (1986).mkv",
+             "media_type": "movie", "watched_state": {"view_count": 0}},
+        ]
+        pr.ask_yes_no = lambda *a, **k: True   # rename + restructure
+        with redirect_stdout(StringIO()):
+            pr.apply_mapping(entries, self.lib, dry_run=False)
+        applied = [f for f in os.listdir(self.dl)
+                   if f.startswith("plex_rename_applied_")]
+        self.assertEqual(len(applied), 1)
+        with open(os.path.join(self.dl, applied[0])) as f:
+            data = json.load(f)
+        result_paths = [e.get("result_path") for e in data]
+        self.assertTrue(any(rp and "Heat (1995)" in rp for rp in result_paths))
+
+
+# --------------------------------------------------------------------------- #
+# Step 7: standalone --migrate-watched arg validation
+# --------------------------------------------------------------------------- #
+class TestStandaloneMigrate(unittest.TestCase):
+    def _args(self, **over):
+        import argparse
+        d = dict(library=None, dry_run=False, export_only=False,
+                 export_file=None, from_mapping=None, log_dir=None,
+                 migrate_watched=True, force=False)
+        d.update(over)
+        return argparse.Namespace(**d)
+
+    def test_requires_from_mapping(self):
+        with redirect_stdout(StringIO()):
+            with self.assertRaises(SystemExit):
+                pr.main(self._args())
+
+    def test_mapping_without_watched_state_exits(self):
+        # A mapping with no captured watched-state has nothing to migrate.
+        d = tempfile.mkdtemp()
+        try:
+            p = os.path.join(d, "map.json")
+            with open(p, "w") as f:
+                json.dump([{"old_path": "/a.mkv", "new_name": "a.mkv"}], f)
+            with redirect_stdout(StringIO()):
+                with self.assertRaises(SystemExit):
+                    pr.main(self._args(from_mapping=p))
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+
+# --------------------------------------------------------------------------- #
+# Step 7: undo restores watched-state via Jellyfin
+# --------------------------------------------------------------------------- #
+class TestUndoUserdata(unittest.TestCase):
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self._yn = und.ask_yes_no
+        self._connect = jf.connect_jellyfin
+
+    def tearDown(self):
+        und.ask_yes_no = self._yn
+        jf.connect_jellyfin = self._connect
+        shutil.rmtree(self.d, ignore_errors=True)
+
+    def _write_log(self, prior):
+        path = os.path.join(self.d, "undo.txt")
+        line = (f"http://jf:8096|u1|m1{prc.SEP}{prc.USERDATA_SENTINEL} "
+                f"{json.dumps(prior)}\n")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(line)
+        return path
+
+    def test_restores_prior_userdata(self):
+        import argparse
+        prior = {"Played": False, "PlayCount": 0, "PlaybackPositionTicks": 0}
+        path = self._write_log(prior)
+        writes = []
+
+        class FakeClient:
+            base_url = "http://jf:8096"
+
+            def set_user_data(self, user_id, item_id, data):
+                writes.append((user_id, item_id, data))
+
+        jf.connect_jellyfin = lambda: FakeClient()
+        und.ask_yes_no = lambda *a, **k: True
+        with redirect_stdout(StringIO()):
+            und.main(argparse.Namespace(log=path, dry_run=False))
+        self.assertEqual(writes, [("u1", "m1", prior)])
+
+    def test_dry_run_does_not_connect(self):
+        import argparse
+        path = self._write_log({"Played": True})
+
+        def boom():
+            raise AssertionError("dry run must not connect to Jellyfin")
+
+        jf.connect_jellyfin = boom
+        with redirect_stdout(StringIO()):
+            und.main(argparse.Namespace(log=path, dry_run=True))
 
 
 if __name__ == "__main__":
