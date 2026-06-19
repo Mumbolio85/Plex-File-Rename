@@ -79,6 +79,12 @@ MKDIR_SENTINEL = "[[MKDIR]]"
 # PRIOR Jellyfin UserData follows the sentinel, so undo can restore it.
 USERDATA_SENTINEL = "[[USERDATA]]"
 
+# Right-hand sentinel for a file created by step 8 (artwork download). On undo
+# the file at the left-hand path is deleted if it still exists. Only new files
+# are recorded; overwrites of pre-existing images are not, because the prior
+# content cannot be restored.
+DELETE_SENTINEL = "[[DELETE]]"
+
 DOWNLOADS = os.path.expanduser("~/Downloads")
 
 # Filenames that don't count as "real" contents when deciding whether a folder

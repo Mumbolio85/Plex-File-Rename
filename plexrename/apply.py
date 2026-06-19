@@ -128,11 +128,47 @@ def relative_components(old_path, recorded_root):
     return rel.split("/")
 
 
+def _find_renamed(original_local_path: str, new_name: str,
+                  media_type: str | None, library_folder: str) -> str:
+    """When a file is not found at its original local path (because a previous
+    run already renamed or restructured it), try the locations it would have
+    landed in.  Returns the first path that exists on disk, or the original
+    path unchanged if nothing is found (so the item shows as missing)."""
+    # 1. Same directory, new filename — rename-only, no restructure.
+    same_dir = os.path.join(os.path.dirname(original_local_path), new_name)
+    if os.path.exists(same_dir):
+        return same_dir
+    # 2. Jellyfin-recommended layout — rename + restructure.
+    jf = jellyfin_target(new_name, media_type, library_folder)
+    if jf and os.path.exists(jf):
+        return jf
+    # 3. Flat in the library root — outlier or single-level layout.
+    flat = os.path.join(library_folder, new_name)
+    if os.path.exists(flat):
+        return flat
+    return original_local_path
+
+
+def _path_levels(path: str, library_folder: str, fallback: int) -> int:
+    """Number of directory components between library_folder and path.
+    Falls back to `fallback` if path is outside the library root."""
+    lib = os.path.abspath(library_folder)
+    p = os.path.abspath(path)
+    if p.startswith(lib + os.sep):
+        return len(p[len(lib) + 1:].split(os.sep)) - 1
+    return fallback
+
+
 def build_items(entries: list[Entry], library_folder: str) -> tuple[list[dict], str]:
     """Map every mapping entry (a rich dict) onto the local filesystem. This is
     the slow phase on a network share: each item gets an existence check plus a
     sidecar scan, so it shows progress as it goes. A per-folder listing cache
-    means a directory holding many items is only listed once."""
+    means a directory holding many items is only listed once.
+
+    When the file is not found at the path derived from the Plex server record,
+    _find_renamed tries the locations a previous rename/restructure run would
+    have placed it, so a second standalone run on an already-renamed library
+    still matches correctly."""
     old_paths = [e["old_path"] for e in entries]
     recorded_root = detect_recorded_root(old_paths)
 
@@ -145,10 +181,18 @@ def build_items(entries: list[Entry], library_folder: str) -> tuple[list[dict], 
         old_path = entry["old_path"]
         comps = relative_components(old_path, recorded_root)
         local_path = os.path.join(library_folder, *comps)
+
+        if not os.path.exists(local_path):
+            local_path = _find_renamed(
+                local_path, entry["new_name"],
+                entry.get("media_type"), library_folder)
+
         items.append({
             "old_recorded": old_path,
             "rel_comps": comps,
-            "levels": len(comps) - 1,          # folders between root and file
+            # Use the depth of the *actual* found path so outlier analysis
+            # reflects where files really are now, not where Plex recorded them.
+            "levels": _path_levels(local_path, library_folder, len(comps) - 1),
             "current_path": local_path,
             "current_dir": os.path.dirname(local_path),
             "new_name": entry["new_name"],
@@ -498,7 +542,8 @@ def migrate_watched_inline(entries, undo_log, run_log, log_dir, force,
 
 def apply_mapping(entries: list[Entry], library_folder: str, dry_run: bool,
                   log_dir: str | None = None, force: bool = False,
-                  assume_yes: bool = False, skip_step7: bool = False) -> None:
+                  assume_yes: bool = False, skip_step7: bool = False,
+                  skip_step8: bool = False) -> None:
     """Phase 2: remap onto the local folder, plan, confirm, apply, restructure,
     and -- if step 6 ran and skip_step7 is False -- offer step 7 (migrate
     watched-state into Jellyfin). Undo/skip logs are written to log_dir
@@ -542,34 +587,41 @@ def apply_mapping(entries: list[Entry], library_folder: str, dry_run: bool,
         else:
             print("Rename step skipped.")
 
-        print("\n--- Optional: organize into Jellyfin's recommended folders ---")
-        print("This puts each movie/show in its own folder the way Jellyfin")
-        print("likes best, e.g. 'Heat (1995)/Heat (1995).mkv'.")
-        if assume_yes or common.ask_yes_no("Organize the files into these folders too?",
-                                           default="n"):
-            # The mapping records each item's type (movie/tv), so a mixed library
-            # restructures correctly without asking. Older mapping files don't
-            # carry the type; for those, ask once and apply it to every item that
-            # is missing one.
-            active = [it for it in items if not it["leave_alone"]]
-            if active and not all(it["media_type"] for it in active):
-                mt = common.ask_choice("Media type wasn't recorded in the mapping. "
-                                       "What type of library is this?",
-                                       [("movie", "Movies  -> Title (Year)/Title (Year).ext"),
-                                        ("tv", "TV Shows -> Series (Year)/Season NN/episode.ext")])
-                media_type = "movie" if mt == "movie" else "tv"
-                for it in active:
-                    if not it["media_type"]:
-                        it["media_type"] = media_type
+        # Build the Jellyfin plan before asking so we can skip the prompt
+        # entirely when everything is already in the recommended layout.
+        active = [it for it in items if not it["leave_alone"]]
+        needs_type_prompt = active and not all(it["media_type"] for it in active)
+        # If media type is unknown we can't evaluate the plan yet; treat it as
+        # non-empty so the prompt is shown and the user can supply the type.
+        jplan = [] if needs_type_prompt else build_jellyfin_plan(items, library_folder)
 
-            # An empty plan means everything already matches the recommended
-            # layout; preview_and_confirm reports that as "nothing to do".
-            jplan = build_jellyfin_plan(items, library_folder)
-            if preview_and_confirm(jplan, "JELLYFIN RESTRUCTURE PLAN", dry_run, assume_yes):
-                execute_plan(jplan, undo_log, run_log, dry_run, label="Organizing")
-                jellyfin_ran = True
-            elif jplan:
-                print("Restructure skipped.")
+        if not jplan and not needs_type_prompt:
+            print("\nFiles are already in Jellyfin's recommended layout; "
+                  "skipping restructure.")
+            jellyfin_ran = True  # layout is ready; still offer step 7
+        else:
+            print("\n--- Optional: organize into Jellyfin's recommended folders ---")
+            print("This puts each movie/show in its own folder the way Jellyfin")
+            print("likes best, e.g. 'Heat (1995)/Heat (1995).mkv'.")
+            if assume_yes or common.ask_yes_no("Organize the files into these folders too?",
+                                               default="n"):
+                # Older mapping files don't carry media_type; ask once and fill in.
+                if needs_type_prompt:
+                    mt = common.ask_choice("Media type wasn't recorded in the mapping. "
+                                           "What type of library is this?",
+                                           [("movie", "Movies  -> Title (Year)/Title (Year).ext"),
+                                            ("tv", "TV Shows -> Series (Year)/Season NN/episode.ext")])
+                    media_type = "movie" if mt == "movie" else "tv"
+                    for it in active:
+                        if not it["media_type"]:
+                            it["media_type"] = media_type
+                    jplan = build_jellyfin_plan(items, library_folder)
+
+                if preview_and_confirm(jplan, "JELLYFIN RESTRUCTURE PLAN", dry_run, assume_yes):
+                    execute_plan(jplan, undo_log, run_log, dry_run, label="Organizing")
+                    jellyfin_ran = True
+                elif jplan:
+                    print("Restructure skipped.")
 
         # Clean up any folders left empty by the moves above (logged to undo).
         removed = common.cleanup_empty_dirs(library_folder, undo_log=undo_log,
@@ -583,17 +635,27 @@ def apply_mapping(entries: list[Entry], library_folder: str, dry_run: bool,
         # Step 7: offered whenever step 6 ran and watched-state was captured.
         # Gated on step 6 so result_path reflects the post-restructure location.
         # result_path is also persisted back into a saved mapping so the
-        # standalone --migrate-watched mode can reuse it later.
+        # standalone --migrate-watched / --copy-artwork modes can reuse it later.
         if jellyfin_ran and not dry_run \
                 and any(e.get("watched_state") for e in entries):
             applied_path = os.path.join(log_dir, f"plex_rename_applied_{stamp}.json")
             attach_result_paths(items, entries)
             write_mapping(entries, applied_path)
-            print(f"Saved a post-restructure mapping (for later --migrate-watched):"
-                  f"\n  {applied_path}")
+            print(f"Saved a post-restructure mapping (for later --migrate-watched"
+                  f" / --copy-artwork):\n  {applied_path}")
             if not skip_step7:
                 migrate_watched_inline(entries, undo_log, run_log, log_dir, force,
                                        assume_yes)
+
+        # Step 8: copy Plex artwork.  Only offered when step 7 has been run --
+        # either this session or in a previous run (detected by the presence of
+        # plex_jf_migrated.json).  This covers both --skip-step7 re-runs and
+        # the "already in Jellyfin layout" path where step 7 ran previously.
+        migrated_log_path = os.path.join(log_dir, "plex_jf_migrated.json")
+        if not skip_step8 and os.path.isfile(migrated_log_path):
+            from plexrename.artwork import copy_artwork_inline
+            copy_artwork_inline(entries, dry_run, run_log, assume_yes,
+                                undo_log=undo_log)
     finally:
         if undo_log is not None:
             undo_log.close()

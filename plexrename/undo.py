@@ -28,7 +28,8 @@ import argparse
 import datetime
 
 from plexrename.common import (
-    SEP_RE, MKDIR_SENTINEL, USERDATA_SENTINEL, DOWNLOADS, RunLog, ask, ask_path,
+    SEP_RE, MKDIR_SENTINEL, USERDATA_SENTINEL, DELETE_SENTINEL,
+    DOWNLOADS, RunLog, ask, ask_path,
     ask_yes_no, cleanup_empty_dirs, ensure_writable_dir, make_progress,
 )
 
@@ -68,6 +69,8 @@ def main(args):
             left, right = parts[0].strip(), parts[1].strip()
             if right == MKDIR_SENTINEL:
                 actions.append(("mkdir", left))
+            elif right == DELETE_SENTINEL:
+                actions.append(("delete", left))
             elif right.startswith(USERDATA_SENTINEL):
                 try:
                     payload = json.loads(right[len(USERDATA_SENTINEL):].strip())
@@ -87,6 +90,8 @@ def main(args):
     for act in actions:
         if act[0] == "mkdir":
             print(f"  recreate folder: {act[1]}")
+        elif act[0] == "delete":
+            print(f"  delete artwork file: {act[1]}")
         elif act[0] == "userdata":
             print(f"  restore Jellyfin watched-state: {act[1]}")
         else:
@@ -155,6 +160,22 @@ def main(args):
                 log_skip("ERROR", f"recreating {folder}: {e}")
             continue
 
+        if act[0] == "delete":
+            path = act[1]
+            if dry_run:
+                detail(f"  [DRY RUN] would delete artwork file: {path}")
+                done += 1
+                continue
+            if not os.path.exists(path):
+                done += 1  # already gone; that's fine
+                continue
+            try:
+                os.remove(path)
+                done += 1
+            except OSError as e:
+                log_skip("ERROR", f"deleting {path}: {e}")
+            continue
+
         if act[0] == "userdata":
             _, ident, payload = act
             ident_parts = ident.rsplit("|", 2)
@@ -210,6 +231,8 @@ def main(args):
         elif act[0] == "move":
             dirs.append(os.path.dirname(act[1]))
             dirs.append(os.path.dirname(act[2]))
+        elif act[0] == "delete":
+            dirs.append(os.path.dirname(act[1]))
     dirs = [d for d in dirs if d]
     recreated = [act[1] for act in actions if act[0] == "mkdir"]
     if dirs:

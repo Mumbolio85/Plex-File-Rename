@@ -22,9 +22,10 @@ MENU_OPTIONS = [
     ("dry-run",          "Dry run — preview every change, touch nothing"),
     ("export",           "Save the Plex mapping (with all metadata) to a JSON file"),
     ("export-only",      "Export only — build the mapping, then stop (no apply)"),
-    ("from-mapping",     "Apply from an existing mapping file (skip Plex) — also select this to run step 7 standalone"),
+    ("from-mapping",     "Apply from an existing mapping file (skip Plex) — also select this to run step 7 or step 8 standalone"),
     ("log-dir",          "Choose where undo/skip logs are written (default: ~/Downloads)"),
     ("skip-step7",       "Skip step 7 — don't offer to migrate Plex watched-state into Jellyfin after organizing"),
+    ("skip-step8",       "Skip step 8 — don't offer to copy Plex artwork into the media folders"),
 ]
 
 
@@ -56,6 +57,12 @@ def parse_args(argv=None):
                    help="Step 7 (standalone): migrate Plex watched-state into "
                         "Jellyfin using a post-restructure mapping (needs "
                         "--from-mapping).")
+    p.add_argument("--copy-artwork", action="store_true",
+                   help="Step 8 (standalone): copy Plex artwork (poster/fanart) "
+                        "into the media folders using a post-restructure mapping "
+                        "(needs --from-mapping).")
+    p.add_argument("--skip-step8", action="store_true",
+                   help="Don't offer step 8 (copy Plex artwork) after organizing.")
     p.add_argument("--force", action="store_true",
                    help="With --migrate-watched, re-add play counts to items "
                         "already in the migration log (double-counts).")
@@ -83,6 +90,9 @@ def _validate(args, parser):
     if args.migrate_watched and not args.from_mapping:
         parser.error("--migrate-watched needs --from-mapping (a saved mapping "
                      "JSON, e.g. an export or a plex_rename_applied_*.json).")
+    if args.copy_artwork and not args.from_mapping:
+        parser.error("--copy-artwork needs --from-mapping (a saved mapping "
+                     "JSON, e.g. a plex_rename_applied_*.json).")
 
 
 def configure_interactively(args):
@@ -119,12 +129,16 @@ def configure_interactively(args):
                                        must_be_dir=True)
     if "skip-step7" in chosen:
         args.skip_step7 = True
+    if "skip-step8" in chosen:
+        args.skip_step8 = True
 
     enabled = []
     if args.dry_run:
         enabled.append("dry run")
     if getattr(args, "skip_step7", False):
         enabled.append("step 7 skipped")
+    if getattr(args, "skip_step8", False):
+        enabled.append("step 8 skipped")
     if args.from_mapping:
         enabled.append(f"apply from {args.from_mapping}")
     else:

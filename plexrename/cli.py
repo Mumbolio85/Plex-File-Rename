@@ -79,7 +79,51 @@ def run_apply_phase(entries, args, dry_run, log_dir):
     apply_mapping(entries, library_folder, dry_run, log_dir,
                   force=getattr(args, "force", False),
                   assume_yes=getattr(args, "yes", False),
-                  skip_step7=getattr(args, "skip_step7", False))
+                  skip_step7=getattr(args, "skip_step7", False),
+                  skip_step8=getattr(args, "skip_step8", False))
+
+
+def run_standalone_artwork(args, dry_run, log_dir):
+    """Step 8 standalone (--copy-artwork): read a saved mapping and download
+    Plex artwork into the media folders. The artwork URLs (with auth token) are
+    embedded in the mapping, so no Plex reconnection is needed. Kept separate
+    from apply so it never touches media files."""
+    import datetime
+    from plexrename.artwork import copy_artwork
+
+    mapping_file = resolve_input_path(
+        args.from_mapping, "Path to the saved mapping (.json): ",
+        must_be_file=True)
+    entries = read_mapping(mapping_file)
+    if not entries:
+        print("No usable entries found in the mapping file. Exiting.")
+        return
+    if not any(e.get("plex_thumb_url") or e.get("plex_show_thumb_url")
+               for e in entries):
+        print("This mapping has no captured artwork URLs. Export a fresh "
+              "mapping with this version (v2.1+), which records artwork URLs "
+              "during the Plex scan.")
+        sys.exit(1)
+
+    log_dir = common.ensure_writable_dir(log_dir or common.DOWNLOADS)
+    migrated_log_path = os.path.join(log_dir, "plex_jf_migrated.json")
+    if not os.path.isfile(migrated_log_path):
+        print("Step 8 (copy artwork) requires step 7 (migrate watched-state) "
+              "to have been run first.\n"
+              f"No migration log found at: {migrated_log_path}\n"
+              "Run --migrate-watched first, then retry --copy-artwork.")
+        return
+
+    stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_log = common.RunLog(
+        os.path.join(log_dir, f"plex_artwork_skipped_{stamp}.txt"),
+        header="Items skipped/failed during artwork copy")
+    try:
+        copy_artwork(entries, dry_run, run_log, overwrite=False)
+    finally:
+        run_log.close()
+    if run_log.created:
+        print(f"Some items were skipped/failed. See:\n  {run_log.path}")
 
 
 def run_standalone_migrate(args, dry_run, log_dir):
@@ -145,7 +189,8 @@ def main(args):
     print("=== Plex -> Jellyfin rename tool ===")
     # With no flags given, offer the interactive settings picker first.
     if not (args.dry_run or args.export_only or args.export_file
-            or args.from_mapping or getattr(args, "migrate_watched", False)):
+            or args.from_mapping or getattr(args, "migrate_watched", False)
+            or getattr(args, "copy_artwork", False)):
         configure_interactively(args)
 
     dry_run = args.dry_run
@@ -170,6 +215,11 @@ def main(args):
     # Step 7 standalone: migrate watched-state from a saved mapping, no files.
     if getattr(args, "migrate_watched", False):
         run_standalone_migrate(args, dry_run, log_dir)
+        return
+
+    # Step 8 standalone: copy Plex artwork from a saved mapping, no files moved.
+    if getattr(args, "copy_artwork", False):
+        run_standalone_artwork(args, dry_run, log_dir)
         return
 
     # --- Obtain the mapping (entries) ---

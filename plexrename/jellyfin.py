@@ -239,7 +239,7 @@ def connect_jellyfin():
         method = ask_choice(
             "\nHow would you like to connect to Jellyfin?",
             [("1", "Enter server URL and an API key"),
-             ("2", "Log in with a Jellyfin username and password")])
+             ("2", "Log in with a Jellyfin server URL, username and password")])
         client = entry_points[method]()
         if client is None:
             continue

@@ -221,6 +221,10 @@ def collect_movie_entries(item) -> list[MovieEntry]:
                 # we're connected to Plex; absent/ignored by steps 1-6.
                 "watched_state": watched_state(item),
                 "provider_ids": plex_guids(item),
+                # Step-8 (artwork copy) fields: full auth-embedded URLs so the
+                # download step works without reconnecting to Plex.
+                "plex_thumb_url": getattr(item, "thumbUrl", None),
+                "plex_art_url": getattr(item, "artUrl", None),
                 "plex": {"item": item_meta,
                          "media": media_meta,
                          "part": plex_attrs(part)},
@@ -285,6 +289,10 @@ def collect_episode_entries(show, episode) -> list[TVEntry]:
                 "watched_state": watched_state(episode),
                 "provider_ids": plex_guids(episode),
                 "show_provider_ids": plex_guids(show),
+                # Step-8 (artwork copy): series-level poster/fanart, captured
+                # once per episode entry; copy_artwork deduplicates by folder.
+                "plex_show_thumb_url": getattr(show, "thumbUrl", None),
+                "plex_show_art_url": getattr(show, "artUrl", None),
                 "plex": {"show": show_meta,
                          "episode": episode_meta,
                          "media": media_meta,
