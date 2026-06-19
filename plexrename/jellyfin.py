@@ -134,12 +134,6 @@ class JellyfinClient:
         self._request("POST", f"/Users/{user_id}/Items/{item_id}/UserData",
                       body=data)
 
-    def set_favorite(self, user_id, item_id, value):
-        # Unused in v2.0 (favorites are not migrated); kept so a later version
-        # can add favorites without touching the client.
-        method = "POST" if value else "DELETE"
-        self._request(method, f"/Users/{user_id}/FavoriteItems/{item_id}")
-
     def iter_items(self, user_id, fields=("Path", "ProviderIds")):
         """Yield every library item, paging through the results so a large
         server isn't pulled down (and parsed) in a single giant response."""

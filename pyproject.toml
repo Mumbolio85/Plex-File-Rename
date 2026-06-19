@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "plex-file-rename"
-version = "2.0.0"
+dynamic = ["version"]
 description = "Rename Plex media files to clean Title (Year) names for Jellyfin, with optional restructure and watched-state migration."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -31,7 +31,10 @@ plex-undo-rename = "plexrename.undo:entrypoint"
 
 [tool.setuptools]
 # The root plex_rename.py / plex_undo_rename.py files are thin launchers; the
-# real code is the plexrename package. (The older common/userdata shims now
-# live in legacy/ and are not installed.)
+# real code is the plexrename package.
 packages = ["plexrename"]
 py-modules = ["plex_rename", "plex_undo_rename"]
+
+# Single source of truth for the version: plexrename.__version__.
+[tool.setuptools.dynamic]
+version = { attr = "plexrename.__version__" }

@@ -29,8 +29,12 @@ SUBTITLE_EXTS = {".srt", ".ass", ".ssa", ".sub", ".idx", ".vtt", ".smi", ".sup"}
 METADATA_EXTS = {".nfo"}
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".tbn", ".webp"}
 # Artwork sidecars follow the Jellyfin/Kodi "<name>-<type>.ext" convention.
-IMAGE_SUFFIXES = ("-poster", "-fanart", "-thumb", "-banner", "-landscape",
-                  "-clearart", "-clearlogo", "-logo", "-disc", "-backdrop")
+# "-folder"/"-backdrop" are the names step 8 (artwork.copy_artwork) writes for
+# movie poster/fanart, so they must be here too or a later rename would leave
+# them behind.
+IMAGE_SUFFIXES = ("-poster", "-fanart", "-folder", "-backdrop", "-thumb",
+                  "-banner", "-landscape", "-clearart", "-clearlogo", "-logo",
+                  "-disc")
 
 
 # --------------------------------------------------------------------------- #
