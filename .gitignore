@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# macOS
+.DS_Store
+
+# Markdown notes/scratch (keep the README)
+*.md
+!README.md
+
+# Tool output artifacts (logs/mappings written during a run)
+plex_rename_undo_*.txt
+plex_rename_skipped_*.txt
+plex_rename_list_*.json
+plex_rename_applied_*.json
+plex_migrate_undo_*.txt
+plex_migrate_skipped_*.txt
+plex_undo_skipped_*.txt
+plex_jf_migrated.json

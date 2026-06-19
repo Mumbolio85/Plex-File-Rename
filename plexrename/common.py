@@ -2,19 +2,17 @@
 """
 Shared helpers for the Plex rename tools.
 
-Used by:
-    plex_rename.py        (export + apply, combined)
-    plex_undo_rename.py   (reverse a previous apply)
-
-Keeping these in one place means the apply and undo steps always agree on the
-mapping/undo-log format (the separator, the MKDIR sentinel) and behave the same
-way for prompts and empty-folder cleanup.
+Used across the package (apply, undo, jellyfin) so the apply and undo steps
+always agree on the mapping/undo-log format (the separator, the MKDIR sentinel)
+and behave the same way for prompts and empty-folder cleanup.
 """
 
 import os
 import re
 import sys
+import shutil
 import datetime
+import tempfile
 
 
 # --------------------------------------------------------------------------- #
@@ -76,7 +74,44 @@ SEP_RE = re.compile(r"\s+[–—\-]{3,}\s+")
 # apply and should be recreated on undo.
 MKDIR_SENTINEL = "[[MKDIR]]"
 
+# Right-hand sentinel in the undo log marking a step-7 watched-state write. The
+# left field is "<server_url>|<user_id>|<item_id>" and the JSON of the item's
+# PRIOR Jellyfin UserData follows the sentinel, so undo can restore it.
+USERDATA_SENTINEL = "[[USERDATA]]"
+
+# Right-hand sentinel for a file created by step 8 (artwork download). On undo
+# the file at the left-hand path is deleted if it still exists. Only new files
+# are recorded; overwrites of pre-existing images are not, because the prior
+# content cannot be restored.
+DELETE_SENTINEL = "[[DELETE]]"
+
 DOWNLOADS = os.path.expanduser("~/Downloads")
+
+# Filenames that don't count as "real" contents when deciding whether a folder
+# is empty (so a folder holding only OS/NAS cruft is still treated as empty and
+# cleaned up). Compared case-insensitively.
+JUNK_FILENAMES = {".ds_store", "thumbs.db", "desktop.ini", ".directory"}
+# Directory names (e.g. Synology's per-folder index) treated likewise.
+JUNK_DIRNAMES = {"@eadir"}
+
+
+def ensure_writable_dir(path):
+    """Return a directory that can be written to for logs/output.
+
+    Prefers `path`; if it doesn't exist, tries to create it; if that fails,
+    falls back to the system temp directory (with a printed warning) so a run
+    never crashes just because, say, ~/Downloads is missing on this machine."""
+    path = os.path.expanduser(path or "")
+    if os.path.isdir(path):
+        return path
+    try:
+        os.makedirs(path, exist_ok=True)
+        return path
+    except OSError:
+        fallback = tempfile.gettempdir()
+        print(f"  Note: '{path}' isn't writable; writing logs to {fallback} "
+              "instead. Use --log-dir to choose another location.")
+        return fallback
 
 
 # --------------------------------------------------------------------------- #
@@ -99,6 +134,32 @@ class RunLog:
                           f"({datetime.datetime.now():%Y-%m-%d %H:%M:%S})\n")
         self.fh.write(f"[{category}] {detail}\n")
         self.fh.flush()
+
+    @property
+    def created(self):
+        return self.fh is not None
+
+    def close(self):
+        if self.fh is not None:
+            self.fh.close()
+
+
+class UndoLog:
+    """Lazy undo log: the file is only created when the first entry is written,
+    so an empty undo log is never left on disk after a run where nothing moved."""
+
+    def __init__(self, path):
+        self.path = path
+        self.fh = None
+
+    def write(self, text):
+        if self.fh is None:
+            self.fh = open(self.path, "w", encoding="utf-8")
+        self.fh.write(text)
+
+    def flush(self):
+        if self.fh is not None:
+            self.fh.flush()
 
     @property
     def created(self):
@@ -187,10 +248,22 @@ def ask_multichoice(prompt, options):
 # --------------------------------------------------------------------------- #
 # Empty-folder cleanup (shared by apply and undo)
 # --------------------------------------------------------------------------- #
+def _is_effectively_empty(contents):
+    """True if a folder's listing holds nothing but OS/NAS junk files/dirs."""
+    for name in contents:
+        if name.lower() in JUNK_FILENAMES:
+            continue
+        if name.lower() in JUNK_DIRNAMES:
+            continue
+        return False
+    return True
+
+
 def cleanup_empty_dirs(root, undo_log=None, keep=None, dry_run=False):
-    """Remove empty folders under root (bottom-up). A folder holding only a
-    stray .DS_Store counts as empty. The root itself is never removed, and any
-    folder in `keep` (e.g. folders just recreated on undo) is preserved.
+    """Remove empty folders under root (bottom-up). A folder holding only junk
+    (a stray .DS_Store, Thumbs.db, @eaDir, ...) counts as empty. The root itself
+    is never removed, and any folder in `keep` (e.g. folders just recreated on
+    undo) is preserved.
 
     If `undo_log` is given, each removed folder is recorded with the MKDIR
     sentinel so it can be recreated later."""
@@ -205,15 +278,24 @@ def cleanup_empty_dirs(root, undo_log=None, keep=None, dry_run=False):
             contents = os.listdir(dirpath)
         except OSError:
             continue
-        if contents == [".DS_Store"]:
+        if contents and _is_effectively_empty(contents):
             if dry_run:
                 contents = []
             else:
+                # Remove the junk so the directory can actually be rmdir'd.
+                for name in list(contents):
+                    try:
+                        junk = os.path.join(dirpath, name)
+                        if os.path.isdir(junk):
+                            shutil.rmtree(junk)
+                        else:
+                            os.remove(junk)
+                    except OSError:
+                        pass
                 try:
-                    os.remove(os.path.join(dirpath, ".DS_Store"))
-                    contents = []
+                    contents = os.listdir(dirpath)
                 except OSError:
-                    pass
+                    continue
         if not contents:
             if dry_run:
                 print(f"  [DRY RUN] would remove empty folder: {dirpath}")

@@ -26,20 +26,52 @@ tool reads that information and uses it to rename the **actual files on your**
 
 ---
 
+## Quick start
+
+```
+pip install plexapi
+python3 plex_rename.py --dry-run     # preview everything, change nothing
+python3 plex_rename.py               # do it for real (asks before any change)
+```
+
+That's the whole loop: dry-run first, look at the plan, then run it for real.
+Everything below is detail.
+
+## Contents
+
+- [Before you start: what you'll need](#before-you-start-what-youll-need)
+- [Step-by-step walkthrough](#step-by-step-walkthrough)
+- [Ways to connect to Plex](#ways-to-connect-to-plex)
+- [Command-line options](#command-line-options)
+- [The optional Jellyfin restructure](#the-optional-jellyfin-restructure)
+- [Step 7 (optional) — Migrate watched-state into Jellyfin](#step-7-optional--migrate-watched-state-into-jellyfin)
+- [Safety features](#safety-features)
+- [Undoing a run](#undoing-a-run)
+- [Development](#development) — running the tests
+- [Under the Hood](#under-the-hood)
+
+---
+
 ## What's in this folder
 
 | File | What it's for |
 | --- | --- |
-| **`plex_rename.py`** | **The main tool.** This is the one you run. |
-| `plex_undo_rename.py` | Reverses a previous run if you change your mind. |
-| `plex_rename_common.py` | Shared helper code. You never run this directly. |
-| `test_plex_rename.py` | Automated tests. Not needed for normal use. |
+| **`plex_rename.py`** | **The main tool.** This is the one you run (or use the `plex-rename` command after `pip install .`). |
+| `plex_undo_rename.py` | Reverses a previous run if you change your mind (`plex-undo-rename`). |
+| `plexrename/` | The package the two launchers above run: the real code, split into focused modules (`common`, `models`, `naming`, `connect`, `apply`, `jellyfin`, `undo`, `options`, `cli`). You never run these directly. |
+| `pyproject.toml` | Packaging metadata: the `plexapi` dependency and the `plex-rename` / `plex-undo-rename` console commands. |
+| `LICENSE` | MIT license. |
+| `tests/` | Automated tests. Not needed for normal use — see [Development](#development). |
+| `legacy/` | Old `plex_rename_common.py` / `plex_jellyfin_userdata.py` import shims, kept for reference. Not used by the tool. |
+
+> The two `plex_*.py` files in the root are thin launchers; everything they do
+> lives in the `plexrename` package.
 
 ---
 
 ## Before you start: what you'll need
 
-1. **Python 3** installed (version 3.10 or newer). To check, open a terminal and
+1. **Python 3** installed (version 3.12 or newer). To check, open a terminal and
    type `python3 --version`.
 2. **The `plexapi` package.** Install it once by running:
 
@@ -157,6 +189,8 @@ python3 plex_rename.py [library_folder] [options]
 | `--export-file PATH` | Save the Plex mapping to this JSON file (otherwise you're asked whether to save it). |
 | `--from-mapping PATH` | Skip Plex entirely and apply a mapping JSON file you exported earlier. |
 | `--log-dir PATH` | Where to write the undo/skip logs (default: `~/Downloads`). |
+| `--migrate-watched` | **Step 7 (standalone).** Migrate Plex watched-state into Jellyfin from a post-restructure mapping. Use with `--from-mapping`. See [Step 7](#step-7-optional--migrate-watched-state-into-jellyfin). |
+| `--force` | With `--migrate-watched`, re-add play counts to items already migrated (otherwise they're skipped to avoid double-counting). |
 | `--version` | Print the tool's version and exit. |
 
 > 💡 Flags can go in any order after the script name; the optional
@@ -181,6 +215,70 @@ recommended folder layout:
 
 This is optional and separately confirmed -- you can rename without
 restructuring, or do both.
+
+---
+
+## Step 7 (optional) — Migrate watched-state into Jellyfin
+
+Steps 1–6 only move *files*. They never carry your Plex **user data**: what's
+watched/unwatched, play counts, resume positions, and your personal ratings.
+**Step 7** copies that into Jellyfin over its REST API (so it works on any
+Jellyfin 10.11.x version and any database backend, with the server left running).
+
+It matches each Plex item to its Jellyfin counterpart differently depending on
+how you run it:
+
+- **Inline** (right after the restructure, same machine): by the file's final
+  path first, falling back to the filename, then IMDb/TMDb/TVDB provider IDs.
+- **Standalone** (`--migrate-watched`, possibly a different machine): by
+  **provider IDs first**, falling back to the **filename** — because a path
+  recorded on one machine usually won't line up with the Jellyfin server's.
+
+> **Important — let Jellyfin scan first.** Jellyfin can only hold watched-state
+> for files it has already *scanned in*. Since step 6 just moved the files, run a
+> Jellyfin library scan (Dashboard → Scan All Libraries) and let it finish before
+> migrating. The tool reminds you and waits.
+
+**Two ways to run it:**
+
+1. **Inline**, right after the restructure — enable it from the interactive
+   settings menu (or `--migrate-watched`). The tool reminds you to scan, waits,
+   then migrates.
+2. **Standalone**, later — re-run with any saved v2.0 mapping:
+
+   ```
+   python3 plex_rename.py --migrate-watched --from-mapping ~/Downloads/plex_rename_applied_<timestamp>.json
+   ```
+
+   A `plex_rename_applied_*.json` is written automatically when a restructure
+   runs, but any mapping exported with this version works too — they all carry
+   the captured watched-state plus the provider IDs and filename this mode
+   matches on.
+
+**How conflicts are resolved (merge, never regress):**
+
+- **Watched** — stays watched if Jellyfin already had it watched; otherwise set
+  from Plex. Never un-watches.
+- **Play count** — Plex's count is **added** to Jellyfin's. To avoid
+  double-counting, each migrated item is logged; re-running won't add again
+  unless you pass `--force`.
+- **Resume position** — the larger of the two offsets wins.
+- **User rating** — Plex's rating is applied only if it wouldn't lower Jellyfin's.
+
+> Favorites are **not** migrated: Plex has no native per-item favorite flag, so
+> there's nothing reliable to carry across.
+
+**Connecting to Jellyfin:** you'll be offered to enter the server URL + an API
+key, or to log in with a username/password. To make an API key: log in to
+Jellyfin → your user profile → **Dashboard** → **API Keys** → **New API Key** →
+copy it.
+
+Step 7 needs network access to your Jellyfin server, but **no extra Python
+package** (it uses only the standard library).
+
+Every watched-state write is recorded in the same undo log as the file moves, so
+`plex_undo_rename.py` can put the prior values back (it connects to Jellyfin only
+when it encounters such a record).
 
 ---
 
@@ -217,7 +315,29 @@ and supports `--dry-run`.
 
 ---
 
+## Development
+
+The code lives in the `plexrename` package; the root `plex_*.py` files are thin
+launchers. The test suite needs **no live Plex/Jellyfin server and no
+third-party packages** (`plexapi` is imported lazily, so the logic is exercised
+with fake objects). Run everything with:
+
+```
+python3 -m unittest discover -s tests -t . -p 'test_*.py'
+```
+
+The same command runs in CI (GitHub Actions, Python 3.12) on every push and pull
+request. To work on the tool as an installed package:
+
+```
+pip install -e .          # editable install; provides plex-rename / plex-undo-rename
+```
+
+---
+
 ＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝
+
+<a id="under-the-hood"></a>
 
 # !!!  Under the Hood --- How and Why the Tools Work  !!!
 
@@ -305,13 +425,15 @@ it is rather than guessing at a reconstruction.
 Each applied move is appended to the undo log as
 `<new path> ––––– <original path>`, flushed immediately so a crash mid-run still
 leaves a usable log. Empty folders removed during cleanup are recorded with a
-`[[MKDIR]]` sentinel so `plex_undo_rename.py` can recreate them. The undo tool
+`[[MKDIR]]` sentinel so `plex_undo_rename.py` can recreate them. Watched-state
+writes (step 7) are recorded with a `[[USERDATA]]` sentinel that carries the
+prior Jellyfin UserData, so `plex_undo_rename.py` can restore it. The undo tool
 reads the log in **reverse** order (last change undone first) and, like the main
 tool, refuses to overwrite a file that already exists at the destination.
 
 ---
 
-### `plex_rename_common.py` -- the shared helpers
+### `plexrename/common.py` -- the shared helpers
 
 This module exists so the apply step and the undo step can never disagree about
 the file formats and behaviors they share. Keeping them in one place guarantees
@@ -322,6 +444,7 @@ both tools use the same:
   (a tolerant regex that reads it back, accepting any dash type/count and
   whitespace so hand-edited logs still parse).
 - **`MKDIR_SENTINEL`** -- the `[[MKDIR]]` marker for recreating removed folders.
+- **`USERDATA_SENTINEL`** -- the `[[USERDATA]]` marker for recording (and reversing) Jellyfin watched-state writes.
 - **`DOWNLOADS`** -- the `~/Downloads` location where logs are written.
 - **`RunLog`** -- records skipped/failed items to the screen and, lazily, to a
   file that's only created if something is actually skipped.
@@ -338,9 +461,9 @@ both tools use the same:
 
 ---
 
-### `test_plex_rename.py` -- the test suite
+### `tests/` -- the test suite
 
-A comprehensive `unittest` suite (run it with `python3 test_plex_rename.py`)
+A comprehensive `unittest` suite (run it with `python3 -m unittest discover -s tests -t . -p 'test_*.py'`)
 that requires **no live Plex server**. Because `plexapi` is only imported
 *inside* functions, the tests feed in lightweight **fake** Plex objects
 (`FakeMovie`, `FakeShow`, `FakeEpisode`, `FakeMedia`, `FakePart`, …) to exercise
@@ -360,6 +483,14 @@ the scanning logic without a network connection. Coverage includes:
   interactive prompts patched to scripted answers.
 - **CLI / onboarding** -- argument parsing, the interactive settings picker, and
   the single-item warning.
+
+`test_plex_jellyfin_userdata.py` covers the step-7 migration logic using a
+`FakeJellyfinClient` (no live server needed):
+
+- **`merge_userdata` conflict rules** -- watched/play-count/resume/rating merge
+  semantics, double-count prevention, and the `--force` override.
+- **Full `migrate_watched` runs** -- path-first and provider-ID-first matching,
+  dry-run, already-migrated skipping, and undo-log recording.
 
 The interactive prompts (`ask_yes_no`, `ask_choice`, etc.) are temporarily
 swapped out for canned responses during tests, and standard output is captured,
