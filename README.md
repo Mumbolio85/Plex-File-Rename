@@ -1,5 +1,9 @@
 # Plex -> Jellyfin Rename Tool
 
+[![CI](https://github.com/Mumbolio85/Plex-File-Rename/actions/workflows/tests.yml/badge.svg)](https://github.com/Mumbolio85/Plex-File-Rename/actions)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
 **Renames your messy media files to clean, standard names using the correct**
 **titles and years from Plex -- so your library imports perfectly into Jellyfin**
 (or any other media player).
@@ -37,6 +41,10 @@ python3 plex_rename.py               # do it for real (asks before any change)
 That's the whole loop: dry-run first, look at the plan, then run it for real.
 Everything below is detail.
 
+> 💡 **Prefer a proper install?** Run `pip install .` in this folder instead.
+> It pulls in `plexapi` for you and adds two commands you can run from anywhere —
+> `plex-rename` and `plex-undo-rename` — so you can skip the `python3 …` prefix.
+
 ## Contents
 
 - [Before you start: what you'll need](#before-you-start-what-youll-need)
@@ -45,9 +53,11 @@ Everything below is detail.
 - [Command-line options](#command-line-options)
 - [The optional Jellyfin restructure](#the-optional-jellyfin-restructure)
 - [Step 7 (optional) — Migrate watched-state into Jellyfin](#step-7-optional--migrate-watched-state-into-jellyfin)
+- [Step 8 (optional) — Copy Plex artwork into Jellyfin](#step-8-optional--copy-plex-artwork-into-jellyfin)
 - [Safety features](#safety-features)
 - [Undoing a run](#undoing-a-run)
 - [Development](#development) — running the tests
+- [Troubleshooting](#troubleshooting)
 - [Under the Hood](#under-the-hood)
 
 ---
@@ -58,11 +68,10 @@ Everything below is detail.
 | --- | --- |
 | **`plex_rename.py`** | **The main tool.** This is the one you run (or use the `plex-rename` command after `pip install .`). |
 | `plex_undo_rename.py` | Reverses a previous run if you change your mind (`plex-undo-rename`). |
-| `plexrename/` | The package the two launchers above run: the real code, split into focused modules (`common`, `models`, `naming`, `connect`, `apply`, `jellyfin`, `undo`, `options`, `cli`). You never run these directly. |
+| `plexrename/` | The package the two launchers above run: the real code, split into focused modules (`common`, `models`, `naming`, `connect`, `apply`, `jellyfin`, `artwork`, `undo`, `options`, `cli`). You never run these directly. |
 | `pyproject.toml` | Packaging metadata: the `plexapi` dependency and the `plex-rename` / `plex-undo-rename` console commands. |
 | `LICENSE` | MIT license. |
 | `tests/` | Automated tests. Not needed for normal use — see [Development](#development). |
-| `legacy/` | Old `plex_rename_common.py` / `plex_jellyfin_userdata.py` import shims, kept for reference. Not used by the tool. |
 
 > The two `plex_*.py` files in the root are thin launchers; everything they do
 > lives in the `plexrename` package.
@@ -143,11 +152,32 @@ wants to make, shown as `current name -> new name`. Read it over. When you're
 satisfied, type **`yes`** to apply the changes. Type anything else to cancel and
 nothing happens.
 
+```
+Rename plan (3 items):
+  the.matrix.1999.1080p.x264.mkv  ->  The Matrix (1999).mkv
+  inception[2010]BRRip.mkv        ->  Inception (2010).mkv
+  got.s01e01.web-dl.mkv           ->  Game of Thrones (2011) - S01E01 - Winter Is Coming.mkv
+
+Apply these 3 video(s)? [y/N]: yes
+  Renaming 3 of 3...
+Done.
+```
+
 ### Step 6 (optional) — Organize into Jellyfin folders
 
 After renaming, the tool offers to also tidy everything into Jellyfin's
 recommended folder layout (e.g. each movie in its own `Heat (1995)/` folder).
 This is optional and asks for its own separate `yes`. You can skip it.
+
+### Steps 7 & 8 (optional) — Bring your watched-state and artwork across
+
+If you restructured into Jellyfin's layout, the tool can also carry over two
+things that moving files alone doesn't: your **watched-state** (what's
+watched, play counts, resume positions, ratings) and your **artwork** (the
+posters/fanart you set in Plex). Each is optional, asks for its own `yes`, and
+is covered in detail in
+[Step 7](#step-7-optional--migrate-watched-state-into-jellyfin) and
+[Step 8](#step-8-optional--copy-plex-artwork-into-jellyfin) below.
 
 ### Done!
 
@@ -190,7 +220,10 @@ python3 plex_rename.py [library_folder] [options]
 | `--from-mapping PATH` | Skip Plex entirely and apply a mapping JSON file you exported earlier. |
 | `--log-dir PATH` | Where to write the undo/skip logs (default: `~/Downloads`). |
 | `--migrate-watched` | **Step 7 (standalone).** Migrate Plex watched-state into Jellyfin from a post-restructure mapping. Use with `--from-mapping`. See [Step 7](#step-7-optional--migrate-watched-state-into-jellyfin). |
+| `--copy-artwork` | **Step 8 (standalone).** Copy Plex artwork (poster/fanart) into the media folders from a post-restructure mapping. Use with `--from-mapping`. See [Step 8](#step-8-optional--copy-plex-artwork-into-jellyfin). |
+| `--skip-step8` | Don't offer step 8 (the artwork copy) after organizing. |
 | `--force` | With `--migrate-watched`, re-add play counts to items already migrated (otherwise they're skipped to avoid double-counting). |
+| `--yes`, `-y` | Skip the per-step confirmation prompts (the plan is still printed). Intended for repeat runs after you've previewed with `--dry-run`; a single "are you sure?" gate still guards a non-dry run. |
 | `--version` | Print the tool's version and exit. |
 
 > 💡 Flags can go in any order after the script name; the optional
@@ -222,8 +255,9 @@ restructuring, or do both.
 
 Steps 1–6 only move *files*. They never carry your Plex **user data**: what's
 watched/unwatched, play counts, resume positions, and your personal ratings.
-**Step 7** copies that into Jellyfin over its REST API (so it works on any
-Jellyfin 10.11.x version and any database backend, with the server left running).
+**Step 7** copies that into Jellyfin over its REST API (so it works on recent
+Jellyfin versions — tested against 10.10/10.11.x — and any database backend,
+with the server left running).
 
 It matches each Plex item to its Jellyfin counterpart differently depending on
 how you run it:
@@ -268,17 +302,66 @@ how you run it:
 > Favorites are **not** migrated: Plex has no native per-item favorite flag, so
 > there's nothing reliable to carry across.
 
-**Connecting to Jellyfin:** you'll be offered to enter the server URL + an API
-key, or to log in with a username/password. To make an API key: log in to
-Jellyfin → your user profile → **Dashboard** → **API Keys** → **New API Key** →
-copy it.
+**Connecting to Jellyfin:** when you run Step 7 you'll be offered two options:
 
-Step 7 needs network access to your Jellyfin server, but **no extra Python
-package** (it uses only the standard library).
+1. **Server URL + API key** *(recommended)* — enter your Jellyfin server
+   address (e.g. `http://192.168.1.100:8096`) and an API key. To make one:
+   log in to Jellyfin → **Dashboard** → **API Keys** → **+** → give it a name
+   → copy the key.
+2. **Username and password** — enter your Jellyfin server address, then your
+   Jellyfin username and password. The tool exchanges these for a session token.
+
+If your account has access to multiple Jellyfin users, the tool will ask you
+which user to migrate watched-state into.
+
+Step 7 needs network access to your Jellyfin server, but **no extra Python package** (it uses only the standard library).
 
 Every watched-state write is recorded in the same undo log as the file moves, so
 `plex_undo_rename.py` can put the prior values back (it connects to Jellyfin only
 when it encounters such a record).
+
+---
+
+## Step 8 (optional) — Copy Plex artwork into Jellyfin
+
+Moving files doesn't bring over the **posters and fanart** you picked in Plex.
+**Step 8** downloads the artwork Plex has for each item and drops it into the
+media folders as standard image files, so Jellyfin's image scanner picks them
+up on its next scan — no need to enable "Save metadata to media folders" in
+Jellyfin. It uses only the Python standard library (no extra package).
+
+Where the images land:
+
+- **Movies** -> `{Title (Year)}-folder.jpg` (poster) and
+  `{Title (Year)}-backdrop.jpg` (fanart), alongside the movie file.
+- **TV Shows** -> `poster.jpg` and `fanart.jpg` inside the series folder.
+
+**When it's offered.** Step 8 only runs once **Step 7** has been run (this
+session or a previous one) — that's how it knows the files are already in
+Jellyfin's layout. It asks whether to copy artwork at all, then whether to:
+
+- **Skip images Jellyfin already placed** *(safe default)* — leaves any artwork
+  you've already set in Jellyfin untouched, or
+- **Overwrite with the Plex versions** — replaces existing images with Plex's.
+
+**Two ways to run it:**
+
+1. **Inline**, right after the restructure and watched-state migration — the
+   tool offers it automatically (skip with `--skip-step8`).
+2. **Standalone**, later — re-run with a saved v2.1 mapping:
+
+   ```
+   python3 plex_rename.py --copy-artwork --from-mapping ~/Downloads/plex_rename_applied_<timestamp>.json
+   ```
+
+   The mapping must carry artwork URLs (any mapping exported with v2.1+ does),
+   and your Plex server must still be reachable at the same address with a valid
+   token — the artwork URLs captured during Phase 1 embed that token.
+
+Each **newly downloaded** image is recorded in the undo log, so
+`plex_undo_rename.py` removes it on undo. Images you chose to *overwrite* are
+**not** reversible — the previous file's contents are gone — so the safe default
+leaves existing artwork alone.
 
 ---
 
@@ -295,8 +378,10 @@ when it encounters such a record).
 - **Resilient moves.** A move that hits a transient error (e.g. a brief network
   hiccup on a NAS) is retried once; anything that still fails is skipped and
   logged rather than aborting the whole run.
-- **Sidecars stay paired.** Subtitles, `.nfo` metadata, and artwork are moved
-  alongside their video, never orphaned.
+- **Sidecars stay paired.** Subtitles, `.nfo` metadata, and sidecar artwork
+  files already on disk (e.g. `-poster.jpg`) are moved alongside their video,
+  never orphaned. (Downloading Plex artwork from scratch is a separate optional
+  step — see [Step 8](#step-8-optional--copy-plex-artwork-into-jellyfin).)
 
 ---
 
@@ -318,9 +403,7 @@ and supports `--dry-run`.
 ## Development
 
 The code lives in the `plexrename` package; the root `plex_*.py` files are thin
-launchers. The test suite needs **no live Plex/Jellyfin server and no
-third-party packages** (`plexapi` is imported lazily, so the logic is exercised
-with fake objects). Run everything with:
+launchers. The test suite needs **no live Plex/Jellyfin server and no third-party packages** (`plexapi` is imported lazily, so the logic is exercised with fake objects). Run everything with:
 
 ```
 python3 -m unittest discover -s tests -t . -p 'test_*.py'
@@ -332,6 +415,33 @@ request. To work on the tool as an installed package:
 ```
 pip install -e .          # editable install; provides plex-rename / plex-undo-rename
 ```
+
+---
+
+## Troubleshooting
+
+**"Matched 0 of N files" (or a very low match count)**
+The local folder you entered doesn't line up with where the files actually are.
+Double-check the path — it should be the folder you'd open in Finder/Explorer
+to see the video files directly. If your library is on a NAS or external drive,
+make sure it's mounted first.
+
+**"Cannot connect to server" / token errors**
+Your Plex token may have expired or the server address has changed. Grab a fresh
+URL by going to Plex web, clicking `...` on any item → **Get Info** → **View XML**, and paste the new URL when the tool asks.
+
+**Single-item library warning**
+If your library has only one item, the tool warns you that it can't reliably
+infer the folder structure from a single path. It's safe to proceed — just
+confirm the proposed rename looks correct before typing `yes`.
+
+**Files renamed but Jellyfin still shows old names**
+Jellyfin won't pick up the changes until it scans. Go to **Dashboard → Scan All Libraries** and wait for it to finish. If Step 7 (watched-state) or Step 8
+(artwork) didn't run yet, do that scan before running either of those steps.
+
+**`--copy-artwork` says "no migration log found"**
+Step 8 requires Step 7 to have been run first. Run `--migrate-watched` with the
+same mapping file, then retry `--copy-artwork`.
 
 ---
 
