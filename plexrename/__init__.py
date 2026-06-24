@@ -10,11 +10,12 @@ here, split into focused modules:
     connect.py   Plex connection / onboarding
     apply.py     remap onto a local folder, plan, confirm, execute
     jellyfin.py  step 7: migrate watched-state into Jellyfin
+    artwork.py   step 8: copy Plex artwork into the media folders
     undo.py      reverse a previous apply
     options.py   single source of truth for CLI flags + interactive menu
     models.py    typed records (Entry / LocalItem helpers)
     cli.py       argument parsing + main()
 """
 
-# Single source of truth for the version (was duplicated across modules).
-__version__ = "2.0.0"
+# Single source of truth for the version
+__version__ = "2.0.1"
