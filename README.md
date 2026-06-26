@@ -58,6 +58,7 @@ Everything below is detail.
 - [Undoing a run](#undoing-a-run)
 - [Development](#development) — running the tests
 - [Troubleshooting](#troubleshooting)
+- [How it compares to other tools](#how-it-compares-to-other-tools)
 - [Under the Hood](#under-the-hood)
 
 ---
@@ -442,6 +443,85 @@ Jellyfin won't pick up the changes until it scans. Go to **Dashboard → Scan Al
 **`--copy-artwork` says "no migration log found"**
 Step 8 requires Step 7 to have been run first. Run `--migrate-watched` with the
 same mapping file, then retry `--copy-artwork`.
+
+---
+
+## How it compares to other tools
+
+Most existing tools do **one** of the jobs this tool does. What makes this one
+different is that it fuses the whole "switch from Plex to Jellyfin" workflow into
+a single guided, reversible run: **rename → restructure → carry over
+watched-state → carry over artwork**. Two families of tool overlap with parts of
+it.
+
+### As a metadata-driven renamer
+
+| Tool | Names come from | Scope | Notes |
+| --- | --- | --- | --- |
+| **This tool** | **Your existing Plex library** | Movies + TV | Trusts what Plex already matched — no re-scraping, in-place rename, full undo |
+| [FileBot](https://www.filebot.net/) | Online DBs (TMDB/TVDB/AniDB) | Movies, TV, anime, music | The most powerful/flexible option; paid; re-identifies every file from scratch |
+| [tinyMediaManager](https://www.tinymediamanager.org/) | Online DBs + regex parsing | Movies + TV | Free, open-source, GUI, writes NFOs; steeper learning curve |
+| [perplex](https://github.com/rieck/perplex) | Plex metadata | Movies only | Same Plex-driven idea, but movies-only and **copies** files to a new folder |
+| [plex-renamer](https://github.com/Will-Bo/plex-renamer) | Filename parsing | TV | Lightweight, no server connection |
+| [PlexifyFiles](https://github.com/patrickenfuego/PlexifyFiles) | Filename parsing | Movies + TV | PowerShell, cross-platform |
+
+The signature here is reading names from the library **Plex already curated**,
+rather than re-identifying each file. FileBot and tinyMediaManager are more
+flexible (and can rename media that was never in Plex), but they re-match every
+file and can get it wrong. Only `perplex` shares the Plex-driven approach, and
+it's movies-only and copy-based rather than an in-place rename with undo.
+
+### As a Plex → Jellyfin watched-state migrator
+
+| Tool | Direction | Matching | Notes |
+| --- | --- | --- | --- |
+| **This tool** | Plex → Jellyfin | Provider IDs → filename → path | Merge-never-regress; per-item dedup log; **writes are reversible** via the undo log |
+| [JellyPlex-Watched](https://github.com/luigi311/JellyPlex-Watched) | Plex ↔ Jellyfin ↔ Emby | Filenames + provider IDs | The most mature option: continuous **two-way** sync, multi-user, Docker |
+| [migrate-plex-to-jellyfin](https://github.com/wilmardo/migrate-plex-to-jellyfin) | Plex → Jellyfin | Filename only | One-shot CLI |
+| [plex-jellyfin-sync](https://github.com/Linkek/plex-jellyfin-sync) | Plex → Jellyfin | IMDb IDs | Watched flag focus |
+| [Watchstate](https://github.com/arabcoders/watchstate) | Multi-server | DB intermediary | Powerful, more setup |
+
+For ongoing, bidirectional, multi-user sync, **JellyPlex-Watched** is
+purpose-built and more capable. This tool's watched-state migration is instead
+deliberately careful and reversible: it **merges** rather than overwrites (adds
+play counts with a dedup log so re-runs don't double-count, keeps the larger
+resume position, never un-watches, only raises ratings), and every write lands
+in the **same undo log** as the file moves — so the whole migration can be
+reversed.
+
+### Where this tool stands out
+
+- **End-to-end in one pass.** Nothing else does rename **and** Jellyfin
+  restructure **and** watched-state **and** artwork in a single workflow —
+  normally you'd stitch together a renamer + a watched-state syncer + a manual
+  artwork copy.
+- **Plex is the single source of truth** for both filenames and user data — no
+  re-scraping, so it inherits the matches you already curated in Plex.
+- **Reversible across the board.** File moves, watched-state writes, and
+  newly-downloaded artwork all go into one undo log. Most watched-state
+  migrators have no undo at all.
+- **Cautious by default.** Dry-run, full plan + typed `yes`, skip log,
+  retry-once on transient NAS errors, and sidecars (subs/`.nfo`/artwork) that
+  travel with their video.
+
+### Honest gaps
+
+- **No GUI** — it's CLI-only (FileBot and tinyMediaManager have polished
+  interfaces).
+- **Movies + TV only** — no anime or music handling (a FileBot strength).
+- **Watched-state is one-way and one-shot** — not a continuous multi-server sync
+  (a JellyPlex-Watched strength).
+- **No online re-scraping or NFO writing** — it can't fix metadata Plex got
+  wrong, and it doesn't generate Kodi/Jellyfin NFOs (a tinyMediaManager
+  strength).
+- **Needs a live Plex server** as the data source — it's no help if Plex is
+  already gone.
+
+In short: as a *renamer* it overlaps with FileBot/tinyMediaManager (its angle:
+trust Plex's metadata instead of re-scraping); as a *migrator* it overlaps with
+JellyPlex-Watched and friends (its angle: merge safely, with undo). What
+essentially nothing else does is combine both halves into one reversible,
+dry-runnable workflow built for someone moving from Plex to Jellyfin.
 
 ---
 
