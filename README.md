@@ -42,8 +42,8 @@ That's the whole loop: dry-run first, look at the plan, then run it for real.
 Everything below is detail.
 
 > 💡 **Prefer a proper install?** Run `pip install .` in this folder instead.
-> It pulls in `plexapi` for you and adds two commands you can run from anywhere —
-> `plex-rename` and `plex-undo-rename` — so you can skip the `python3 …` prefix.
+> It pulls in `plexapi` for you and adds two commands you can run from anywhere -
+> `plex-rename` and `plex-undo-rename` - so you can skip the `python3 …` prefix.
 
 ## Contents
 
@@ -52,11 +52,11 @@ Everything below is detail.
 - [Ways to connect to Plex](#ways-to-connect-to-plex)
 - [Command-line options](#command-line-options)
 - [The optional Jellyfin restructure](#the-optional-jellyfin-restructure)
-- [Step 7 (optional) — Migrate watched-state into Jellyfin](#step-7-optional--migrate-watched-state-into-jellyfin)
-- [Step 8 (optional) — Copy Plex artwork into Jellyfin](#step-8-optional--copy-plex-artwork-into-jellyfin)
+- [Step 7 (optional) - Migrate watched-state into Jellyfin](#step-7-optional--migrate-watched-state-into-jellyfin)
+- [Step 8 (optional) - Copy Plex artwork into Jellyfin](#step-8-optional--copy-plex-artwork-into-jellyfin)
 - [Safety features](#safety-features)
 - [Undoing a run](#undoing-a-run)
-- [Development](#development) — running the tests
+- [Development](#development) - running the tests
 - [Troubleshooting](#troubleshooting)
 - [How it compares to other tools](#how-it-compares-to-other-tools)
 - [Under the Hood](#under-the-hood)
@@ -72,7 +72,7 @@ Everything below is detail.
 | `plexrename/` | The package the two launchers above run: the real code, split into focused modules (`common`, `models`, `naming`, `connect`, `apply`, `jellyfin`, `artwork`, `undo`, `options`, `cli`). You never run these directly. |
 | `pyproject.toml` | Packaging metadata: the `plexapi` dependency and the `plex-rename` / `plex-undo-rename` console commands. |
 | `LICENSE` | MIT license. |
-| `tests/` | Automated tests. Not needed for normal use — see [Development](#development). |
+| `tests/` | Automated tests. Not needed for normal use - see [Development](#development). |
 
 > The two `plex_*.py` files in the root are thin launchers; everything they do
 > lives in the `plexrename` package.
@@ -101,7 +101,7 @@ Everything below is detail.
 Follow these steps in order. The tool guides you through each one and won't
 change anything until the very end.
 
-### Step 1 — Start the tool
+### Step 1 - Start the tool
 
 Open a terminal, go to this folder, and run:
 
@@ -114,7 +114,7 @@ python3 plex_rename.py
 > same way but only *shows* you what it would do -- no files are changed. Once
 > you're happy with the preview, run it again without `--dry-run`.
 
-### Step 2 — Connect to your Plex server
+### Step 2 - Connect to your Plex server
 
 You'll be asked how you want to connect. The **easiest** way:
 
@@ -128,12 +128,12 @@ The tool reads your server address and login token straight from that URL -- you
 don't have to find them yourself. (Other connection options are listed in
 [Ways to connect to Plex](#ways-to-connect-to-plex) below.)
 
-### Step 3 — Choose which library to rename
+### Step 3 - Choose which library to rename
 
 The tool shows a numbered list of your Plex libraries (Movies, TV Shows, etc.).
 Type the number of the one you want and press Enter.
 
-### Step 4 — Point it at your files on this computer
+### Step 4 - Point it at your files on this computer
 
 The tool now knows the *correct* names, but it needs to find the matching files
 **on your own computer**. It asks:
@@ -146,7 +146,7 @@ Enter the folder you'd open in Finder/Explorer to see the actual video files
 (e.g. `/Volumes/Media/Movies` or `D:\Media\Movies`). The tool then reports how
 many files it successfully matched -- for example *"Matched 248 of 250 files."*
 
-### Step 5 — Review the plan and approve it
+### Step 5 - Review the plan and approve it
 
 This is the important step. The tool prints a complete list of every rename it
 wants to make, shown as `current name -> new name`. Read it over. When you're
@@ -164,13 +164,13 @@ Apply these 3 video(s)? [y/N]: yes
 Done.
 ```
 
-### Step 6 (optional) — Organize into Jellyfin folders
+### Step 6 (optional) - Organize into Jellyfin folders
 
 After renaming, the tool offers to also tidy everything into Jellyfin's
 recommended folder layout (e.g. each movie in its own `Heat (1995)/` folder).
 This is optional and asks for its own separate `yes`. You can skip it.
 
-### Steps 7 & 8 (optional) — Bring your watched-state and artwork across
+### Steps 7 & 8 (optional) - Bring your watched-state and artwork across
 
 If you restructured into Jellyfin's layout, the tool can also carry over two
 things that moving files alone doesn't: your **watched-state** (what's
@@ -252,12 +252,12 @@ restructuring, or do both.
 
 ---
 
-## Step 7 (optional) — Migrate watched-state into Jellyfin
+## Step 7 (optional) - Migrate watched-state into Jellyfin
 
 Steps 1–6 only move *files*. They never carry your Plex **user data**: what's
 watched/unwatched, play counts, resume positions, and your personal ratings.
 **Step 7** copies that into Jellyfin over its REST API (so it works on recent
-Jellyfin versions — tested against 10.10/10.11.x — and any database backend,
+Jellyfin versions - tested against 10.10/10.11.x - and any database backend,
 with the server left running).
 
 It matches each Plex item to its Jellyfin counterpart differently depending on
@@ -266,50 +266,50 @@ how you run it:
 - **Inline** (right after the restructure, same machine): by the file's final
   path first, falling back to the filename, then IMDb/TMDb/TVDB provider IDs.
 - **Standalone** (`--migrate-watched`, possibly a different machine): by
-  **provider IDs first**, falling back to the **filename** — because a path
+  **provider IDs first**, falling back to the **filename** - because a path
   recorded on one machine usually won't line up with the Jellyfin server's.
 
-> **Important — let Jellyfin scan first.** Jellyfin can only hold watched-state
+> **Important - let Jellyfin scan first.** Jellyfin can only hold watched-state
 > for files it has already *scanned in*. Since step 6 just moved the files, run a
-> Jellyfin library scan (Dashboard → Scan All Libraries) and let it finish before
+> Jellyfin library scan (Dashboard -> Scan All Libraries) and let it finish before
 > migrating. The tool reminds you and waits.
 
 **Two ways to run it:**
 
-1. **Inline**, right after the restructure — enable it from the interactive
+1. **Inline**, right after the restructure - enable it from the interactive
    settings menu (or `--migrate-watched`). The tool reminds you to scan, waits,
    then migrates.
-2. **Standalone**, later — re-run with any saved v2.0 mapping:
+2. **Standalone**, later - re-run with any saved v2.0 mapping:
 
    ```
    python3 plex_rename.py --migrate-watched --from-mapping ~/Downloads/plex_rename_applied_<timestamp>.json
    ```
 
    A `plex_rename_applied_*.json` is written automatically when a restructure
-   runs, but any mapping exported with this version works too — they all carry
+   runs, but any mapping exported with this version works too - they all carry
    the captured watched-state plus the provider IDs and filename this mode
    matches on.
 
 **How conflicts are resolved (merge, never regress):**
 
-- **Watched** — stays watched if Jellyfin already had it watched; otherwise set
+- **Watched** - stays watched if Jellyfin already had it watched; otherwise set
   from Plex. Never un-watches.
-- **Play count** — Plex's count is **added** to Jellyfin's. To avoid
+- **Play count** - Plex's count is **added** to Jellyfin's. To avoid
   double-counting, each migrated item is logged; re-running won't add again
   unless you pass `--force`.
-- **Resume position** — the larger of the two offsets wins.
-- **User rating** — Plex's rating is applied only if it wouldn't lower Jellyfin's.
+- **Resume position** - the larger of the two offsets wins.
+- **User rating** - Plex's rating is applied only if it wouldn't lower Jellyfin's.
 
 > Favorites are **not** migrated: Plex has no native per-item favorite flag, so
 > there's nothing reliable to carry across.
 
 **Connecting to Jellyfin:** when you run Step 7 you'll be offered two options:
 
-1. **Server URL + API key** *(recommended)* — enter your Jellyfin server
+1. **Server URL + API key** *(recommended)* - enter your Jellyfin server
    address (e.g. `http://192.168.1.100:8096`) and an API key. To make one:
-   log in to Jellyfin → **Dashboard** → **API Keys** → **+** → give it a name
-   → copy the key.
-2. **Username and password** — enter your Jellyfin server address, then your
+   log in to Jellyfin -> **Dashboard** -> **API Keys** -> **+** -> give it a name
+   -> copy the key.
+2. **Username and password** - enter your Jellyfin server address, then your
    Jellyfin username and password. The tool exchanges these for a session token.
 
 If your account has access to multiple Jellyfin users, the tool will ask you
@@ -323,12 +323,12 @@ when it encounters such a record).
 
 ---
 
-## Step 8 (optional) — Copy Plex artwork into Jellyfin
+## Step 8 (optional) - Copy Plex artwork into Jellyfin
 
 Moving files doesn't bring over the **posters and fanart** you picked in Plex.
 **Step 8** downloads the artwork Plex has for each item and drops it into the
 media folders as standard image files, so Jellyfin's image scanner picks them
-up on its next scan — no need to enable "Save metadata to media folders" in
+up on its next scan - no need to enable "Save metadata to media folders" in
 Jellyfin. It uses only the Python standard library (no extra package).
 
 Where the images land:
@@ -338,18 +338,18 @@ Where the images land:
 - **TV Shows** -> `poster.jpg` and `fanart.jpg` inside the series folder.
 
 **When it's offered.** Step 8 only runs once **Step 7** has been run (this
-session or a previous one) — that's how it knows the files are already in
+session or a previous one) - that's how it knows the files are already in
 Jellyfin's layout. It asks whether to copy artwork at all, then whether to:
 
-- **Skip images Jellyfin already placed** *(safe default)* — leaves any artwork
+- **Skip images Jellyfin already placed** *(safe default)* - leaves any artwork
   you've already set in Jellyfin untouched, or
-- **Overwrite with the Plex versions** — replaces existing images with Plex's.
+- **Overwrite with the Plex versions** - replaces existing images with Plex's.
 
 **Two ways to run it:**
 
-1. **Inline**, right after the restructure and watched-state migration — the
+1. **Inline**, right after the restructure and watched-state migration - the
    tool offers it automatically (skip with `--skip-step8`).
-2. **Standalone**, later — re-run with a saved v2.1 mapping:
+2. **Standalone**, later - re-run with a saved v2.1 mapping:
 
    ```
    python3 plex_rename.py --copy-artwork --from-mapping ~/Downloads/plex_rename_applied_<timestamp>.json
@@ -357,11 +357,11 @@ Jellyfin's layout. It asks whether to copy artwork at all, then whether to:
 
    The mapping must carry artwork URLs (any mapping exported with v2.1+ does),
    and your Plex server must still be reachable at the same address with a valid
-   token — the artwork URLs captured during Phase 1 embed that token.
+   token - the artwork URLs captured during Phase 1 embed that token.
 
 Each **newly downloaded** image is recorded in the undo log, so
 `plex_undo_rename.py` removes it on undo. Images you chose to *overwrite* are
-**not** reversible — the previous file's contents are gone — so the safe default
+**not** reversible - the previous file's contents are gone - so the safe default
 leaves existing artwork alone.
 
 ---
@@ -382,7 +382,7 @@ leaves existing artwork alone.
 - **Sidecars stay paired.** Subtitles, `.nfo` metadata, and sidecar artwork
   files already on disk (e.g. `-poster.jpg`) are moved alongside their video,
   never orphaned. (Downloading Plex artwork from scratch is a separate optional
-  step — see [Step 8](#step-8-optional--copy-plex-artwork-into-jellyfin).)
+  step - see [Step 8](#step-8-optional--copy-plex-artwork-into-jellyfin).)
 
 ---
 
@@ -423,21 +423,21 @@ pip install -e .          # editable install; provides plex-rename / plex-undo-r
 
 **"Matched 0 of N files" (or a very low match count)**
 The local folder you entered doesn't line up with where the files actually are.
-Double-check the path — it should be the folder you'd open in Finder/Explorer
+Double-check the path - it should be the folder you'd open in Finder/Explorer
 to see the video files directly. If your library is on a NAS or external drive,
 make sure it's mounted first.
 
 **"Cannot connect to server" / token errors**
 Your Plex token may have expired or the server address has changed. Grab a fresh
-URL by going to Plex web, clicking `...` on any item → **Get Info** → **View XML**, and paste the new URL when the tool asks.
+URL by going to Plex web, clicking `...` on any item -> **Get Info** -> **View XML**, and paste the new URL when the tool asks.
 
 **Single-item library warning**
 If your library has only one item, the tool warns you that it can't reliably
-infer the folder structure from a single path. It's safe to proceed — just
+infer the folder structure from a single path. It's safe to proceed - just
 confirm the proposed rename looks correct before typing `yes`.
 
 **Files renamed but Jellyfin still shows old names**
-Jellyfin won't pick up the changes until it scans. Go to **Dashboard → Scan All Libraries** and wait for it to finish. If Step 7 (watched-state) or Step 8
+Jellyfin won't pick up the changes until it scans. Go to **Dashboard -> Scan All Libraries** and wait for it to finish. If Step 7 (watched-state) or Step 8
 (artwork) didn't run yet, do that scan before running either of those steps.
 
 **`--copy-artwork` says "no migration log found"**
@@ -450,15 +450,15 @@ same mapping file, then retry `--copy-artwork`.
 
 Most existing tools do **one** of the jobs this tool does. What makes this one
 different is that it fuses the whole "switch from Plex to Jellyfin" workflow into
-a single guided, reversible run: **rename → restructure → carry over
-watched-state → carry over artwork**. Two families of tool overlap with parts of
+a single guided, reversible run: **rename -> restructure -> carry over
+watched-state -> carry over artwork**. Two families of tool overlap with parts of
 it.
 
 ### As a metadata-driven renamer
 
 | Tool | Names come from | Scope | Notes |
 | --- | --- | --- | --- |
-| **This tool** | **Your existing Plex library** | Movies + TV | Trusts what Plex already matched — no re-scraping, in-place rename, full undo |
+| **This tool** | **Your existing Plex library** | Movies + TV | Trusts what Plex already matched - no re-scraping, in-place rename, full undo |
 | [FileBot](https://www.filebot.net/) | Online DBs (TMDB/TVDB/AniDB) | Movies, TV, anime, music | The most powerful/flexible option; paid; re-identifies every file from scratch |
 | [tinyMediaManager](https://www.tinymediamanager.org/) | Online DBs + regex parsing | Movies + TV | Free, open-source, GUI, writes NFOs; steeper learning curve |
 | [perplex](https://github.com/rieck/perplex) | Plex metadata | Movies only | Same Plex-driven idea, but movies-only and **copies** files to a new folder |
@@ -471,14 +471,14 @@ flexible (and can rename media that was never in Plex), but they re-match every
 file and can get it wrong. Only `perplex` shares the Plex-driven approach, and
 it's movies-only and copy-based rather than an in-place rename with undo.
 
-### As a Plex → Jellyfin watched-state migrator
+### As a Plex -> Jellyfin watched-state migrator
 
 | Tool | Direction | Matching | Notes |
 | --- | --- | --- | --- |
-| **This tool** | Plex → Jellyfin | Provider IDs → filename → path | Merge-never-regress; per-item dedup log; **writes are reversible** via the undo log |
+| **This tool** | Plex -> Jellyfin | Provider IDs -> filename -> path | Merge-never-regress; per-item dedup log; **writes are reversible** via the undo log |
 | [JellyPlex-Watched](https://github.com/luigi311/JellyPlex-Watched) | Plex ↔ Jellyfin ↔ Emby | Filenames + provider IDs | The most mature option: continuous **two-way** sync, multi-user, Docker |
-| [migrate-plex-to-jellyfin](https://github.com/wilmardo/migrate-plex-to-jellyfin) | Plex → Jellyfin | Filename only | One-shot CLI |
-| [plex-jellyfin-sync](https://github.com/Linkek/plex-jellyfin-sync) | Plex → Jellyfin | IMDb IDs | Watched flag focus |
+| [migrate-plex-to-jellyfin](https://github.com/wilmardo/migrate-plex-to-jellyfin) | Plex -> Jellyfin | Filename only | One-shot CLI |
+| [plex-jellyfin-sync](https://github.com/Linkek/plex-jellyfin-sync) | Plex -> Jellyfin | IMDb IDs | Watched flag focus |
 | [Watchstate](https://github.com/arabcoders/watchstate) | Multi-server | DB intermediary | Powerful, more setup |
 
 For ongoing, bidirectional, multi-user sync, **JellyPlex-Watched** is
@@ -486,16 +486,16 @@ purpose-built and more capable. This tool's watched-state migration is instead
 deliberately careful and reversible: it **merges** rather than overwrites (adds
 play counts with a dedup log so re-runs don't double-count, keeps the larger
 resume position, never un-watches, only raises ratings), and every write lands
-in the **same undo log** as the file moves — so the whole migration can be
+in the **same undo log** as the file moves - so the whole migration can be
 reversed.
 
 ### Where this tool stands out
 
 - **End-to-end in one pass.** Nothing else does rename **and** Jellyfin
-  restructure **and** watched-state **and** artwork in a single workflow —
+  restructure **and** watched-state **and** artwork in a single workflow -
   normally you'd stitch together a renamer + a watched-state syncer + a manual
   artwork copy.
-- **Plex is the single source of truth** for both filenames and user data — no
+- **Plex is the single source of truth** for both filenames and user data - no
   re-scraping, so it inherits the matches you already curated in Plex.
 - **Reversible across the board.** File moves, watched-state writes, and
   newly-downloaded artwork all go into one undo log. Most watched-state
@@ -506,15 +506,15 @@ reversed.
 
 ### Honest gaps
 
-- **No GUI** — it's CLI-only (FileBot and tinyMediaManager have polished
+- **No GUI** - it's CLI-only (FileBot and tinyMediaManager have polished
   interfaces).
-- **Movies + TV only** — no anime or music handling (a FileBot strength).
-- **Watched-state is one-way and one-shot** — not a continuous multi-server sync
+- **Movies + TV only** - no anime or music handling (a FileBot strength).
+- **Watched-state is one-way and one-shot** - not a continuous multi-server sync
   (a JellyPlex-Watched strength).
-- **No online re-scraping or NFO writing** — it can't fix metadata Plex got
+- **No online re-scraping or NFO writing** - it can't fix metadata Plex got
   wrong, and it doesn't generate Kodi/Jellyfin NFOs (a tinyMediaManager
   strength).
-- **Needs a live Plex server** as the data source — it's no help if Plex is
+- **Needs a live Plex server** as the data source - it's no help if Plex is
   already gone.
 
 In short: as a *renamer* it overlaps with FileBot/tinyMediaManager (its angle:
